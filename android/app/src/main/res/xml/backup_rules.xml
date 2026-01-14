@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude session data from backup for security -->
+    <exclude domain="sharedpref" path="chorequest_session.xml"/>
+    <exclude domain="sharedpref" path="chorequest_prefs.xml"/>
+</full-backup-content>

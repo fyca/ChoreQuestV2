@@ -1,0 +1,339 @@
+package com.chorequest.domain.models
+
+/**
+ * Domain models for ChoreQuest
+ * These match the data structures stored in Google Drive
+ */
+
+// Enums
+enum class UserRole {
+    PARENT, CHILD
+}
+
+enum class ThemeMode {
+    LIGHT, DARK, COLORFUL
+}
+
+enum class CelebrationStyle {
+    FIREWORKS, CONFETTI, STARS, SPARKLES
+}
+
+enum class ChoreStatus {
+    PENDING, IN_PROGRESS, COMPLETED, VERIFIED, OVERDUE
+}
+
+enum class RecurringFrequency {
+    DAILY, WEEKLY, MONTHLY
+}
+
+enum class TransactionType {
+    EARN, SPEND
+}
+
+enum class DeviceType {
+    ANDROID, WEB
+}
+
+// User Model
+data class User(
+    val id: String,
+    val name: String,
+    val email: String? = null,
+    val role: UserRole,
+    val isPrimaryParent: Boolean,
+    val avatarUrl: String? = null,
+    val pointsBalance: Int,
+    val canEarnPoints: Boolean,
+    val authToken: String,
+    val tokenVersion: Int,
+    val devices: List<Device>,
+    val createdAt: String,
+    val createdBy: String,
+    val settings: UserSettings,
+    val stats: UserStats
+)
+
+data class Device(
+    val deviceId: String,
+    val deviceName: String,
+    val lastActive: String
+)
+
+data class UserSettings(
+    val notifications: Boolean,
+    val theme: ThemeMode,
+    val celebrationStyle: CelebrationStyle,
+    val soundEffects: Boolean
+)
+
+data class UserStats(
+    val totalChoresCompleted: Int,
+    val currentStreak: Int
+)
+
+// Chore Model
+data class Chore(
+    val id: String,
+    val title: String,
+    val description: String,
+    val assignedTo: List<String>,
+    val createdBy: String,
+    val pointValue: Int,
+    val dueDate: String? = null,
+    val recurring: RecurringSchedule? = null,
+    val subtasks: List<Subtask>,
+    val status: ChoreStatus,
+    val photoProof: String? = null,
+    val completedBy: String? = null,
+    val completedAt: String? = null,
+    val verifiedBy: String? = null,
+    val verifiedAt: String? = null,
+    val createdAt: String,
+    val color: String? = null,
+    val icon: String? = null
+)
+
+data class RecurringSchedule(
+    val frequency: RecurringFrequency,
+    val daysOfWeek: List<Int>? = null,
+    val endDate: String? = null
+)
+
+data class Subtask(
+    val id: String,
+    val title: String,
+    val completed: Boolean,
+    val completedBy: String? = null,
+    val completedAt: String? = null
+)
+
+// Reward Model
+data class Reward(
+    val id: String,
+    val title: String,
+    val description: String,
+    val pointCost: Int,
+    val imageUrl: String? = null,
+    val available: Boolean,
+    val quantity: Int? = null,
+    val createdBy: String,
+    val redeemedCount: Int,
+    val createdAt: String
+)
+
+// Transaction Model
+data class Transaction(
+    val id: String,
+    val userId: String,
+    val type: TransactionType,
+    val points: Int,
+    val reason: String,
+    val referenceId: String,
+    val timestamp: String
+)
+
+// Activity Log Model
+enum class ActivityActionType {
+    CHORE_CREATED,
+    CHORE_EDITED,
+    CHORE_DELETED,
+    CHORE_ASSIGNED,
+    CHORE_UNASSIGNED,
+    CHORE_STARTED,
+    CHORE_COMPLETED,
+    CHORE_COMPLETED_PARENT,
+    CHORE_COMPLETED_CHILD,
+    CHORE_VERIFIED,
+    CHORE_REJECTED,
+    SUBTASK_COMPLETED,
+    SUBTASK_UNCOMPLETED,
+    PHOTO_UPLOADED,
+    REWARD_CREATED,
+    REWARD_EDITED,
+    REWARD_DELETED,
+    REWARD_REDEEMED,
+    REWARD_APPROVED,
+    REWARD_DENIED,
+    POINTS_EARNED,
+    POINTS_SPENT,
+    POINTS_ADJUSTED,
+    POINTS_BONUS,
+    POINTS_PENALTY,
+    USER_ADDED,
+    USER_REMOVED,
+    USER_UPDATED,
+    QR_GENERATED,
+    QR_REGENERATED,
+    DEVICE_LOGIN,
+    DEVICE_LOGOUT,
+    DEVICE_REMOVED,
+    SESSION_EXPIRED,
+    SETTINGS_CHANGED
+}
+
+data class ActivityLog(
+    val id: String,
+    val timestamp: String,
+    val actorId: String,
+    val actorName: String,
+    val actorRole: UserRole,
+    val actionType: ActivityActionType,
+    val targetUserId: String? = null,
+    val targetUserName: String? = null,
+    val details: ActivityDetails,
+    val referenceId: String? = null,
+    val referenceType: String? = null,
+    val metadata: ActivityMetadata
+)
+
+data class ActivityDetails(
+    val choreTitle: String? = null,
+    val choreDueDate: String? = null,
+    val subtaskTitle: String? = null,
+    val pointsAmount: Int? = null,
+    val pointsPrevious: Int? = null,
+    val pointsNew: Int? = null,
+    val rewardTitle: String? = null,
+    val rewardCost: Int? = null,
+    val reason: String? = null,
+    val oldValue: Any? = null,
+    val newValue: Any? = null,
+    val photoUrl: String? = null,
+    val notes: String? = null
+)
+
+data class ActivityMetadata(
+    val deviceType: DeviceType,
+    val appVersion: String,
+    val location: String? = null
+)
+
+// Family Model
+data class Family(
+    val id: String,
+    val name: String,
+    val ownerId: String,
+    val ownerEmail: String,
+    val driveFileId: String,
+    val members: List<User>,
+    val inviteCodes: List<InviteCode>,
+    val createdAt: String,
+    val settings: FamilySettings
+)
+
+data class InviteCode(
+    val userId: String,
+    val token: String,
+    val version: Int,
+    val createdAt: String,
+    val lastUsed: String? = null,
+    val isActive: Boolean
+)
+
+data class FamilySettings(
+    val requirePhotoProof: Boolean,
+    val autoApproveChores: Boolean,
+    val pointMultiplier: Double,
+    val allowQRRegeneration: Boolean
+)
+
+// Sync Metadata
+data class SyncMetadata(
+    val version: Int,
+    val lastModified: String,
+    val lastModifiedBy: String,
+    val lastSyncedAt: String,
+    val checksum: String? = null
+)
+
+// QR Code Payload
+data class QRCodePayload(
+    val familyId: String,
+    val userId: String,
+    val token: String,
+    val version: Int,
+    val appVersion: String,
+    val timestamp: String
+)
+
+// Device Session (stored locally)
+data class DeviceSession(
+    val familyId: String,
+    val userId: String,
+    val userName: String,
+    val userRole: UserRole,
+    val authToken: String,
+    val tokenVersion: Int,
+    val driveWorkbookLink: String,
+    val deviceId: String,
+    val loginTimestamp: String,
+    val lastSynced: Long? = null
+)
+
+// API Response Types
+data class ApiResponse<T>(
+    val success: Boolean,
+    val data: T? = null,
+    val error: String? = null,
+    val message: String? = null
+)
+
+data class AuthResponse(
+    val success: Boolean,
+    val familyData: Family,
+    val userData: User,
+    val sessionData: DeviceSession? = null,
+    val isNewFamily: Boolean? = null
+)
+
+data class SyncStatusResponse(
+    val success: Boolean,
+    val timestamp: String,
+    val files: Map<String, FileMetadata>
+)
+
+data class FileMetadata(
+    val fileName: String,
+    val lastModified: String,
+    val size: Long,
+    val id: String
+)
+
+data class ChangesSinceResponse(
+    val success: Boolean,
+    val hasChanges: Boolean,
+    val timestamp: String,
+    val changes: Map<String, EntityChange>
+)
+
+data class EntityChange(
+    val hasChanges: Boolean,
+    val data: Any? = null,
+    val metadata: FileMetadata
+)
+
+// Collection Types (what's stored in Drive files)
+data class UsersData(
+    val users: List<User>,
+    val metadata: SyncMetadata? = null
+)
+
+data class ChoresData(
+    val chores: List<Chore>,
+    val metadata: SyncMetadata? = null
+)
+
+data class RewardsData(
+    val rewards: List<Reward>,
+    val metadata: SyncMetadata? = null
+)
+
+data class TransactionsData(
+    val transactions: List<Transaction>,
+    val metadata: SyncMetadata? = null
+)
+
+data class ActivityLogData(
+    val logs: List<ActivityLog>,
+    val metadata: SyncMetadata? = null
+)

@@ -1,0 +1,37 @@
+package com.chorequest.di
+
+import com.chorequest.data.local.SessionManager
+import com.chorequest.data.local.dao.*
+import com.chorequest.data.remote.ChoreQuestApi
+import com.chorequest.data.repository.AuthRepository
+import com.chorequest.data.repository.ChoreRepository
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+object RepositoryModule {
+
+    @Provides
+    @Singleton
+    fun provideAuthRepository(
+        api: ChoreQuestApi,
+        sessionManager: SessionManager,
+        userDao: UserDao
+    ): AuthRepository {
+        return AuthRepository(api, sessionManager, userDao)
+    }
+
+    @Provides
+    @Singleton
+    fun provideChoreRepository(
+        api: ChoreQuestApi,
+        choreDao: ChoreDao,
+        sessionManager: SessionManager
+    ): ChoreRepository {
+        return ChoreRepository(api, choreDao, sessionManager)
+    }
+}

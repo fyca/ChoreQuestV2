@@ -1,0 +1,451 @@
+package com.chorequest.presentation.dashboard
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.chorequest.presentation.components.*
+
+/**
+ * Parent dashboard screen
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ParentDashboardScreen(
+    onNavigateToChoreList: () -> Unit,
+    onNavigateToRewardList: () -> Unit,
+    onNavigateToUserList: () -> Unit,
+    onNavigateToActivityLog: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToLogin: () -> Unit,
+    onNavigateToChoreDetail: (String) -> Unit = {},
+    onNavigateToCompleteChore: (String) -> Unit = {},
+    viewModel: ParentDashboardViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val lastSyncTime by viewModel.lastSyncTime.collectAsState()
+    val networkStatus by viewModel.networkStatus.collectAsState()
+    var currentRoute by remember { mutableStateOf("parent_dashboard") }
+
+    Scaffold(
+        topBar = {
+            Column {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "ChoreQuest",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    actions = {
+                        IconButton(onClick = { viewModel.refresh() }) {
+                            Icon(Icons.Default.Refresh, "Refresh")
+                        }
+                        IconButton(onClick = {
+                            viewModel.logout(onNavigateToLogin)
+                        }) {
+                            Icon(Icons.Default.Logout, "Logout")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                        actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
+                OfflineIndicator(networkStatus = networkStatus)
+            }
+        },
+        bottomBar = {
+            ChoreQuestBottomNavigationBar(
+                items = parentNavItems,
+                currentRoute = currentRoute,
+                onNavigate = { route ->
+                    currentRoute = route
+                    when (route) {
+                        "chore_list" -> onNavigateToChoreList()
+                        "reward_list" -> onNavigateToRewardList()
+                        "user_list" -> onNavigateToUserList()
+                        "settings" -> onNavigateToSettings()
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        when (val state = uiState) {
+            is ParentDashboardState.Loading -> {
+                LoadingScreen(modifier = Modifier.padding(padding))
+            }
+            is ParentDashboardState.Error -> {
+                ErrorScreen(
+                    message = state.message,
+                    onRetry = { viewModel.refresh() },
+                    modifier = Modifier.padding(padding)
+                )
+            }
+            is ParentDashboardState.Success -> {
+                ParentDashboardContent(
+                    state = state,
+                    syncManager = viewModel.syncManager,
+                    lastSyncTime = lastSyncTime,
+                    onManualSync = { viewModel.triggerSync() },
+                    onCreateChore = onNavigateToChoreList,
+                    onCreateReward = onNavigateToRewardList,
+                    onViewActivity = onNavigateToActivityLog,
+                    onChoreClick = onNavigateToChoreDetail,
+                    onCompleteChoreClick = onNavigateToCompleteChore,
+                    currentUserId = viewModel.currentUserId,
+                    modifier = Modifier.padding(padding)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ParentDashboardContent(
+    state: ParentDashboardState.Success,
+    syncManager: com.chorequest.workers.SyncManager,
+    lastSyncTime: Long?,
+    onManualSync: () -> Unit,
+    onCreateChore: () -> Unit,
+    onCreateReward: () -> Unit,
+    onViewActivity: () -> Unit,
+    onChoreClick: (String) -> Unit,
+    onCompleteChoreClick: (String) -> Unit,
+    currentUserId: String?,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Welcome header
+        item {
+            WelcomeHeader(userName = state.userName)
+        }
+
+        // Sync status bar
+        item {
+            SyncStatusBar(
+                syncManager = syncManager,
+                lastSyncTime = lastSyncTime,
+                onManualSyncClick = onManualSync
+            )
+        }
+
+        // Stats cards
+        item {
+            StatsCardsRow(
+                pendingChores = state.pendingChoresCount,
+                completedChores = state.completedChoresCount,
+                awaitingVerification = state.awaitingVerificationCount
+            )
+        }
+
+        // Quick actions
+        item {
+            QuickActionsSection(
+                onCreateChore = onCreateChore,
+                onCreateReward = onCreateReward,
+                onViewActivity = onViewActivity
+            )
+        }
+
+        // Recent activity
+        item {
+            Text(
+                text = "Recent Chores",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        }
+
+        // Recent chores list (with assigned to me highlighted)
+        if (state.recentChores.isEmpty()) {
+            item {
+                EmptyState(
+                    icon = Icons.Default.Assignment,
+                    title = "No Chores Yet",
+                    message = "Create your first chore to get started!",
+                    actionLabel = "Create Chore",
+                    onAction = onCreateChore
+                )
+            }
+        } else {
+            items(state.recentChores) { chore ->
+                ChorePreviewCard(
+                    chore = chore,
+                    isAssignedToMe = currentUserId?.let { chore.assignedTo.contains(it) } ?: false,
+                    onClick = { onChoreClick(chore.id) },
+                    onCompleteClick = if (currentUserId != null && chore.assignedTo.contains(currentUserId) && chore.status == com.chorequest.domain.models.ChoreStatus.PENDING) {
+                        { onCompleteChoreClick(chore.id) }
+                    } else null
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WelcomeHeader(userName: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Text(
+            text = "Welcome back,",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = userName,
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+private fun StatsCardsRow(
+    pendingChores: Int,
+    completedChores: Int,
+    awaitingVerification: Int
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        StatCard(
+            title = "Pending",
+            value = pendingChores.toString(),
+            icon = Icons.Default.Schedule,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f)
+        )
+        StatCard(
+            title = "Completed",
+            value = completedChores.toString(),
+            icon = Icons.Default.CheckCircle,
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.weight(1f)
+        )
+        StatCard(
+            title = "Verify",
+            value = awaitingVerification.toString(),
+            icon = Icons.Default.Verified,
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun StatCard(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = color.copy(alpha = 0.1f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickActionsSection(
+    onCreateChore: () -> Unit,
+    onCreateReward: () -> Unit,
+    onViewActivity: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Quick Actions",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            QuickActionButton(
+                label = "Create Chore",
+                icon = Icons.Default.Add,
+                onClick = onCreateChore,
+                modifier = Modifier.weight(1f)
+            )
+            QuickActionButton(
+                label = "Add Reward",
+                icon = Icons.Default.CardGiftcard,
+                onClick = onCreateReward,
+                modifier = Modifier.weight(1f)
+            )
+            QuickActionButton(
+                label = "Activity",
+                icon = Icons.Default.History,
+                onClick = onViewActivity,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickActionButton(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(80.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChorePreviewCard(
+    chore: com.chorequest.domain.models.Chore,
+    isAssignedToMe: Boolean = false,
+    onClick: () -> Unit,
+    onCompleteClick: (() -> Unit)? = null
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isAssignedToMe) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        )
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+            // Status indicator
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .background(
+                        color = when (chore.status) {
+                            com.chorequest.domain.models.ChoreStatus.PENDING -> MaterialTheme.colorScheme.primary
+                            com.chorequest.domain.models.ChoreStatus.COMPLETED -> MaterialTheme.colorScheme.tertiary
+                            com.chorequest.domain.models.ChoreStatus.VERIFIED -> MaterialTheme.colorScheme.secondary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        shape = RoundedCornerShape(50)
+                    )
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = chore.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = chore.description.take(50) + if (chore.description.length > 50) "..." else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            PointsBadge(points = chore.pointValue)
+        }
+        
+        // Complete button if assigned to me and pending
+        if (onCompleteClick != null) {
+            Divider()
+            TextButton(
+                onClick = { onCompleteClick() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Complete This Chore")
+            }
+        }
+    }
+    }
+}

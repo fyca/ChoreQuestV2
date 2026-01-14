@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Exclude session data from cloud backup for security -->
+        <exclude domain="sharedpref" path="chorequest_session.xml"/>
+        <exclude domain="sharedpref" path="chorequest_prefs.xml"/>
+    </cloud-backup>
+</data-extraction-rules>

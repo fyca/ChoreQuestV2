@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ChoreQuest</string>
+    
+    <!-- Authentication -->
+    <string name="welcome_title">Welcome to ChoreQuest!</string>
+    <string name="welcome_subtitle">Making chores fun for the whole family</string>
+    <string name="scan_qr_code">Scan QR Code</string>
+    <string name="parent_sign_in">Parent Sign In</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_chores">Chores</string>
+    <string name="nav_rewards">Rewards</string>
+    <string name="nav_activity">Activity</string>
+    <string name="nav_games">Games</string>
+    
+    <!-- Dashboard -->
+    <string name="my_chores">My Chores</string>
+    <string name="points_balance">Points: %d</string>
+    <string name="current_streak">%d day streak!</string>
+    <string name="chores_completed_today">%d chores completed today</string>
+    
+    <!-- Chores -->
+    <string name="create_chore">Create Chore</string>
+    <string name="chore_title">Chore Title</string>
+    <string name="chore_description">Description</string>
+    <string name="due_date">Due Date</string>
+    <string name="point_value">Point Value</string>
+    <string name="add_subtask">Add Subtask</string>
+    <string name="mark_complete">Mark Complete</string>
+    <string name="upload_photo">Upload Photo</string>
+    
+    <!-- Rewards -->
+    <string name="reward_marketplace">Reward Marketplace</string>
+    <string name="create_reward">Create Reward</string>
+    <string name="redeem_reward">Redeem</string>
+    <string name="points_cost">%d points</string>
+    
+    <!-- Settings -->
+    <string name="settings">Settings</string>
+    <string name="account">Account</string>
+    <string name="theme">Theme</string>
+    <string name="celebrations">Celebration Style</string>
+    <string name="sound_effects">Sound Effects</string>
+    <string name="notifications">Notifications</string>
+    <string name="logout">Logout</string>
+    <string name="logout_confirmation">Are you sure you want to logout?</string>
+    
+    <!-- Family Management -->
+    <string name="add_family_member">Add Family Member</string>
+    <string name="manage_users">Manage Users</string>
+    <string name="generate_qr_code">Generate QR Code</string>
+    <string name="regenerate_qr_code">Regenerate QR Code</string>
+    
+    <!-- Common -->
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+    <string name="edit">Edit</string>
+    <string name="confirm">Confirm</string>
+    <string name="loading">Loading…</string>
+    <string name="error">Error</string>
+    <string name="retry">Retry</string>
+    <string name="success">Success!</string>
+    
+    <!-- Celebration Messages -->
+    <string name="celebration_chore_complete">Great job! 🎉</string>
+    <string name="celebration_points_earned">+%d points!</string>
+    <string name="celebration_streak">Amazing streak!</string>
+    
+    <!-- Permissions -->
+    <string name="camera_permission_required">Camera permission is required to scan QR codes</string>
+    <string name="notification_permission_required">Enable notifications to stay updated</string>
+</resources>

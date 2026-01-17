@@ -64,6 +64,17 @@ enum class AppTheme {
     LIGHT, DARK, COLORFUL, SYSTEM
 }
 
+/**
+ * Convert domain ThemeMode to AppTheme
+ */
+fun com.chorequest.domain.models.ThemeMode.toAppTheme(): AppTheme {
+    return when (this) {
+        com.chorequest.domain.models.ThemeMode.LIGHT -> AppTheme.LIGHT
+        com.chorequest.domain.models.ThemeMode.DARK -> AppTheme.DARK
+        com.chorequest.domain.models.ThemeMode.COLORFUL -> AppTheme.COLORFUL
+    }
+}
+
 @Composable
 fun ChoreQuestTheme(
     themeMode: AppTheme = AppTheme.SYSTEM,

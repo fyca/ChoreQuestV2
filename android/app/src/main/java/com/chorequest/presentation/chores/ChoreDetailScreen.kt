@@ -24,6 +24,7 @@ import com.chorequest.domain.models.ChoreStatus
 import com.chorequest.presentation.components.ChoreQuestTopAppBar
 import com.chorequest.presentation.components.LoadingScreen
 import com.chorequest.presentation.components.ErrorScreen
+import com.chorequest.presentation.users.UserViewModel
 
 /**
  * Chore detail screen for parents to view and verify chores
@@ -34,10 +35,12 @@ fun ChoreDetailScreen(
     choreId: String,
     onNavigateBack: () -> Unit,
     onNavigateToEdit: (String) -> Unit,
-    viewModel: ChoreViewModel = hiltViewModel()
+    viewModel: ChoreViewModel = hiltViewModel(),
+    userViewModel: UserViewModel = hiltViewModel()
 ) {
     val choreDetailState by viewModel.choreDetailState.collectAsState()
     val createEditState by viewModel.createEditState.collectAsState()
+    val allUsers by userViewModel.allUsers.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showVerifyDialog by remember { mutableStateOf(false) }
     var verifyError by remember { mutableStateOf<String?>(null) }
@@ -200,7 +203,20 @@ fun ChoreDetailScreen(
                                 )
 
                                 DetailRow(icon = Icons.Default.Stars, label = "Point Value", value = "${chore.pointValue} pts")
-                                DetailRow(icon = Icons.Default.Person, label = "Assigned To", value = "${chore.assignedTo.size} people")
+                                DetailRow(
+                                    icon = Icons.Default.Person, 
+                                    label = "Assigned To", 
+                                    value = if (chore.assignedTo.isEmpty()) {
+                                        "No one assigned"
+                                    } else {
+                                        val assignedUsers = allUsers.filter { it.id in chore.assignedTo }
+                                        if (assignedUsers.isEmpty()) {
+                                            "${chore.assignedTo.size} person${if (chore.assignedTo.size == 1) "" else "s"}"
+                                        } else {
+                                            assignedUsers.joinToString(", ") { it.name }
+                                        }
+                                    }
+                                )
                                 if (chore.dueDate != null) {
                                     DetailRow(icon = Icons.Default.CalendarToday, label = "Due Date", value = chore.dueDate)
                                 }

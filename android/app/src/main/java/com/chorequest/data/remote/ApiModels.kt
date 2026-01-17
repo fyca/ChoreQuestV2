@@ -28,7 +28,10 @@ data class AuthResponse(
     @SerializedName("sessionData") val sessionData: DeviceSession? = null,
     val message: String? = null,
     val error: String? = null,
-    val stack: String? = null
+    val stack: String? = null,
+    val authorizationUrl: String? = null,
+    val instructions: String? = null,
+    val requiresOAuthSetup: Boolean? = null // Indicates OAuth credentials need to be configured
 )
 
 /**
@@ -217,10 +220,27 @@ data class RewardsListResponse(
 data class RedeemRewardResponse(
     val success: Boolean,
     val reward: Reward? = null,
+    val redemption: RewardRedemption? = null,
     val transaction: Transaction? = null,
     val newBalance: Int? = null,
     val message: String? = null,
     val error: String? = null
+)
+
+data class RewardRedemptionsResponse(
+    val success: Boolean,
+    val redemptions: List<RewardRedemption> = emptyList(),
+    val error: String? = null
+)
+
+data class ApproveRewardRedemptionRequest(
+    val parentId: String,
+    val redemptionId: String
+)
+
+data class DenyRewardRedemptionRequest(
+    val parentId: String,
+    val redemptionId: String
 )
 
 /**
@@ -239,6 +259,7 @@ data class CreateUserRequest(
     val parentUserId: String,
     val name: String,
     val role: UserRole,
+    val canEarnPoints: Boolean = true,
     val avatarUrl: String? = null
 )
 
@@ -249,6 +270,34 @@ data class CreateUserResponse(
     val success: Boolean,
     val user: User? = null,
     val qrData: QRCodePayload? = null,
+    val error: String? = null,
+    val message: String? = null
+)
+
+/**
+ * Update user request
+ */
+data class UpdateUserRequest(
+    val parentUserId: String,
+    val targetUserId: String,
+    val updates: UserUpdates
+)
+
+/**
+ * User updates object
+ */
+data class UserUpdates(
+    val name: String? = null,
+    val avatarUrl: String? = null,
+    val settings: UserSettings? = null
+)
+
+/**
+ * Update user response (Apps Script UserManager.gs returns { success, user })
+ */
+data class UpdateUserResponse(
+    val success: Boolean,
+    val user: User? = null,
     val error: String? = null,
     val message: String? = null
 )

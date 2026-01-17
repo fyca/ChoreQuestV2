@@ -4,6 +4,70 @@
  */
 
 /**
+ * Helper function to get ownerEmail, folderId, and accessToken from family data
+ * Searches through all stored access tokens to find a family
+ * @param {string} requestedFamilyId - Optional familyId to match. If provided, only returns matching family.
+ */
+function getFamilyInfoForSync(requestedFamilyId) {
+  try {
+    Logger.log('getFamilyInfoForSync: Attempting to get family info, requestedFamilyId=' + (requestedFamilyId || 'any'));
+    
+    // Get all stored access tokens from user properties
+    const userProps = PropertiesService.getUserProperties();
+    const allProps = userProps.getProperties();
+    
+    // Try each stored access token until we find a matching family
+    for (const key in allProps) {
+      if (key.startsWith('ACCESS_TOKEN_')) {
+        const ownerEmail = key.replace('ACCESS_TOKEN_', '');
+        const accessToken = allProps[key];
+        
+        Logger.log('getFamilyInfoForSync: Trying access token for: ' + ownerEmail);
+        
+        try {
+          // Try to get the folder ID and load family data
+          const folderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+          Logger.log('getFamilyInfoForSync: Got folder ID: ' + folderId);
+          
+          // Load family data
+          const familyData = loadJsonFileV3(FILE_NAMES.FAMILY, ownerEmail, folderId, accessToken);
+          
+          if (familyData) {
+            Logger.log('getFamilyInfoForSync: Found family! ownerEmail=' + familyData.ownerEmail + ', folderId=' + familyData.driveFileId + ', familyId=' + familyData.id);
+            
+            // If a specific familyId was requested, check if it matches
+            if (requestedFamilyId && familyData.id !== requestedFamilyId) {
+              Logger.log('getFamilyInfoForSync: Family ID mismatch. Requested: ' + requestedFamilyId + ', Found: ' + familyData.id + ', continuing search...');
+              continue;
+            }
+            
+            Logger.log('getFamilyInfoForSync: Returning family info for familyId=' + familyData.id);
+            // Use driveFileId from family, fallback to folderId we just used to load family (ensures we use the same folder that works)
+            return {
+              ownerEmail: familyData.ownerEmail,
+              folderId: familyData.driveFileId || folderId,
+              familyId: familyData.id,
+              accessToken: accessToken
+            };
+          }
+        } catch (error) {
+          Logger.log('getFamilyInfoForSync: Failed with token for ' + ownerEmail + ': ' + error.toString());
+          // Continue to next token
+          continue;
+        }
+      }
+    }
+    
+    Logger.log('getFamilyInfoForSync: No family found' + (requestedFamilyId ? ' matching familyId=' + requestedFamilyId : ''));
+    return null;
+  } catch (error) {
+    Logger.log('getFamilyInfoForSync: Error: ' + error.toString());
+    Logger.log('getFamilyInfoForSync: Error stack: ' + (error.stack || 'no stack'));
+    return null;
+  }
+}
+
+/**
  * Handle sync requests (GET)
  */
 function handleSyncRequest(e) {
@@ -23,7 +87,14 @@ function handleSyncRequest(e) {
  */
 function getSyncStatus() {
   try {
-    const metadata = getAllFileMetadata();
+    // Get ownerEmail, folderId, and accessToken from family data
+    const familyInfo = getFamilyInfoForSync();
+    if (!familyInfo) {
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId, accessToken } = familyInfo;
+    const metadata = getAllFileMetadataV3(ownerEmail, folderId, accessToken);
     
     return createResponse({
       success: true,
@@ -42,6 +113,13 @@ function getSyncStatus() {
  */
 function getChangesSince(e) {
   try {
+    // Get ownerEmail, folderId, and accessToken from family data
+    const familyInfo = getFamilyInfoForSync();
+    if (!familyInfo) {
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId, accessToken } = familyInfo;
     const since = e.parameter.since;
     const entityTypes = e.parameter.types ? e.parameter.types.split(',') : ['chores', 'rewards', 'users', 'transactions', 'activity_log'];
     
@@ -53,7 +131,7 @@ function getChangesSince(e) {
     let hasAnyChanges = false;
     
     entityTypes.forEach(entityType => {
-      const result = getIncrementalChanges(entityType, since);
+      const result = getIncrementalChanges(entityType, since, ownerEmail, folderId, accessToken);
       changes[entityType] = result;
       if (result.hasChanges) {
         hasAnyChanges = true;
@@ -81,7 +159,7 @@ function handleDataRequest(e) {
   const action = e.parameter.action;
   
   if (action === 'get') {
-    return getData(entityType);
+    return getData(entityType, e);
   } else if (action === 'getSince') {
     const since = e.parameter.since;
     return getDataSince(entityType, since);
@@ -109,16 +187,28 @@ function handleDataPost(e, data) {
 /**
  * Get full data for entity type
  */
-function getData(entityType) {
+function getData(entityType, e) {
   try {
+    // Get familyId from query parameter if provided
+    const requestedFamilyId = e && e.parameter ? e.parameter.familyId : null;
+    
+    // Get ownerEmail, folderId, and accessToken from family data
+    // If familyId is provided, use it to find the correct family
+    const familyInfo = getFamilyInfoForSync(requestedFamilyId);
+    if (!familyInfo) {
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId, accessToken } = familyInfo;
     const fileName = getFileNameForEntityType(entityType);
     
     if (!fileName) {
       return createResponse({ error: 'Invalid entity type' }, 400);
     }
     
-    const data = loadJsonFile(fileName);
-    const metadata = getFileMetadata(fileName);
+    // Use Drive API v3 with access token
+    const data = loadJsonFileV3(fileName, ownerEmail, folderId, accessToken);
+    const metadata = getFileMetadataV3(fileName, ownerEmail, folderId, accessToken);
     
     return createResponse({
       success: true,
@@ -137,6 +227,13 @@ function getData(entityType) {
  */
 function getDataSince(entityType, since) {
   try {
+    // Get ownerEmail, folderId, and accessToken from family data
+    const familyInfo = getFamilyInfoForSync();
+    if (!familyInfo) {
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId, accessToken } = familyInfo;
     const fileName = getFileNameForEntityType(entityType);
     
     if (!fileName) {
@@ -147,7 +244,7 @@ function getDataSince(entityType, since) {
       return getData(entityType);
     }
     
-    const result = getIncrementalChanges(entityType, since);
+    const result = getIncrementalChanges(entityType, since, ownerEmail, folderId, accessToken);
     
     if (result.hasChanges) {
       return createResponse({
@@ -175,6 +272,13 @@ function getDataSince(entityType, since) {
  */
 function saveData(entityType, data) {
   try {
+    // Get ownerEmail and folderId from family data
+    const familyInfo = getFamilyInfoForSync();
+    if (!familyInfo) {
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId } = familyInfo;
     const fileName = getFileNameForEntityType(entityType);
     
     if (!fileName) {
@@ -196,8 +300,8 @@ function saveData(entityType, data) {
     }
     
     // Save file
-    const fileId = saveJsonFile(fileName, data);
-    const metadata = getFileMetadata(fileName);
+    const fileId = saveJsonFile(fileName, data, ownerEmail, folderId);
+    const metadata = getFileMetadata(fileName, ownerEmail, folderId);
     
     return createResponse({
       success: true,
@@ -273,41 +377,89 @@ function deleteAllData(data) {
       return createResponse({ error: 'Missing userId or familyId' }, 400);
     }
     
+    Logger.log('deleteAllData: Looking for family with ID: ' + familyId);
+    Logger.log('deleteAllData: userId: ' + userId);
+    
+    // Get ownerEmail, folderId, and accessToken from family data using familyId
+    const familyInfo = getFamilyInfoForSync(familyId);
+    if (!familyInfo) {
+      Logger.log('deleteAllData: Family info not found for familyId: ' + familyId);
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId, accessToken } = familyInfo;
+    Logger.log('deleteAllData: Found family - ownerEmail: ' + ownerEmail + ', folderId: ' + folderId);
+    
     // Load family data to verify user is primary parent
-    const familyData = loadJsonFile(FILE_NAMES.FAMILY);
+    const familyData = loadJsonFileV3(FILE_NAMES.FAMILY, ownerEmail, folderId, accessToken);
     if (!familyData) {
+      Logger.log('deleteAllData: Family data file not found');
       return createResponse({ error: 'Family data not found' }, 404);
     }
     
     // Find user in family members
     const user = familyData.members.find(m => m.id === userId);
     if (!user) {
+      Logger.log('deleteAllData: User not found in family members');
       return createResponse({ error: 'User not found' }, 404);
     }
     
     // Verify user is primary parent
     if (!user.isPrimaryParent || user.role !== 'parent') {
+      Logger.log('deleteAllData: User is not primary parent');
       return createResponse({ error: 'Only primary parent can delete all data' }, 403);
     }
+    
+    Logger.log('deleteAllData: User verified as primary parent, proceeding with deletion');
     
     // Delete all data files except keep the primary parent user
     const primaryParent = user;
     
-    // Clear all data files
-    saveJsonFile(FILE_NAMES.CHORES, { chores: [] });
-    saveJsonFile(FILE_NAMES.REWARDS, { rewards: [] });
-    saveJsonFile(FILE_NAMES.TRANSACTIONS, { transactions: [] });
-    saveJsonFile(FILE_NAMES.ACTIVITY_LOG, { logs: [] });
+    Logger.log('deleteAllData: Clearing chores file...');
+    const choresResult = saveJsonFileV3(FILE_NAMES.CHORES, { chores: [] }, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Chores file saved: ' + (choresResult ? 'SUCCESS' : 'FAILED'));
     
-    // Reset users to only include primary parent
-    saveJsonFile(FILE_NAMES.USERS, { users: [primaryParent] });
+    Logger.log('deleteAllData: Clearing rewards file...');
+    const rewardsResult = saveJsonFileV3(FILE_NAMES.REWARDS, { rewards: [] }, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Rewards file saved: ' + (rewardsResult ? 'SUCCESS' : 'FAILED'));
+    
+    Logger.log('deleteAllData: Clearing transactions file...');
+    const transactionsResult = saveJsonFileV3(FILE_NAMES.TRANSACTIONS, { transactions: [] }, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Transactions file saved: ' + (transactionsResult ? 'SUCCESS' : 'FAILED'));
+    
+    Logger.log('deleteAllData: Clearing activity log file...');
+    const activityLogResult = saveJsonFileV3(FILE_NAMES.ACTIVITY_LOG, { logs: [] }, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Activity log file saved: ' + (activityLogResult ? 'SUCCESS' : 'FAILED'));
+    
+    Logger.log('deleteAllData: Resetting users file to only include primary parent...');
+    const usersResult = saveJsonFileV3(FILE_NAMES.USERS, { users: [primaryParent] }, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Users file saved: ' + (usersResult ? 'SUCCESS' : 'FAILED'));
+    Logger.log('deleteAllData: Primary parent user ID: ' + primaryParent.id);
+    Logger.log('deleteAllData: Primary parent user name: ' + primaryParent.name);
     
     // Reset family members to only include primary parent
+    Logger.log('deleteAllData: Resetting family members...');
     familyData.members = [primaryParent];
+    if (!familyData.metadata) {
+      familyData.metadata = {};
+    }
     familyData.metadata.lastModified = new Date().toISOString();
     familyData.metadata.lastModifiedBy = userId;
     familyData.metadata.version = (familyData.metadata.version || 0) + 1;
-    saveJsonFile(FILE_NAMES.FAMILY, familyData);
+    const familyResult = saveJsonFileV3(FILE_NAMES.FAMILY, familyData, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Family file saved: ' + (familyResult ? 'SUCCESS' : 'FAILED'));
+    Logger.log('deleteAllData: Family members count: ' + familyData.members.length);
+    
+    // Verify deletion by loading files back
+    Logger.log('deleteAllData: Verifying deletion...');
+    const verifyChores = loadJsonFileV3(FILE_NAMES.CHORES, ownerEmail, folderId, accessToken);
+    const verifyRewards = loadJsonFileV3(FILE_NAMES.REWARDS, ownerEmail, folderId, accessToken);
+    const verifyUsers = loadJsonFileV3(FILE_NAMES.USERS, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Verification - Chores count: ' + (verifyChores?.chores?.length || 0));
+    Logger.log('deleteAllData: Verification - Rewards count: ' + (verifyRewards?.rewards?.length || 0));
+    Logger.log('deleteAllData: Verification - Users count: ' + (verifyUsers?.users?.length || 0));
+    
+    Logger.log('deleteAllData: All data deleted successfully');
     
     // Log the deletion
     logActivity({
@@ -318,7 +470,7 @@ function deleteAllData(data) {
       details: {
         reason: 'All data deleted by primary parent'
       }
-    });
+    }, ownerEmail, folderId, accessToken);
     
     return createResponse({
       success: true,
@@ -327,6 +479,7 @@ function deleteAllData(data) {
     
   } catch (error) {
     Logger.log('Error in deleteAllData: ' + error.toString());
+    Logger.log('Error stack: ' + (error.stack || 'no stack'));
     return createResponse({ error: error.toString() }, 500);
   }
 }

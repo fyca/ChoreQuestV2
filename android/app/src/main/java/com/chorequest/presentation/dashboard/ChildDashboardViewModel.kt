@@ -4,8 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import com.chorequest.data.local.SessionManager
+import com.chorequest.data.repository.AuthRepository
 import com.chorequest.data.repository.ChoreRepository
+import com.chorequest.data.repository.RewardRepository
+import com.chorequest.data.repository.UserRepository
 import com.chorequest.domain.models.Chore
+import com.chorequest.domain.models.RewardRedemption
+import com.chorequest.domain.models.RewardRedemptionStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
@@ -19,7 +24,10 @@ import javax.inject.Inject
 @HiltViewModel
 class ChildDashboardViewModel @Inject constructor(
     private val choreRepository: ChoreRepository,
+    private val rewardRepository: RewardRepository,
+    private val userRepository: UserRepository,
     private val sessionManager: SessionManager,
+    private val authRepository: AuthRepository,
     private val syncRepository: com.chorequest.data.repository.SyncRepository,
     val syncManager: com.chorequest.workers.SyncManager,
     private val networkObserver: com.chorequest.utils.NetworkConnectivityObserver
@@ -90,29 +98,67 @@ class ChildDashboardViewModel @Inject constructor(
                     return@launch
                 }
 
-                // Get user's chores
-                choreRepository.getChoresForUser(session.userId).collect { chores ->
-                    val myChores = chores.filter { 
+                // Fetch pending reward redemptions
+                val redemptionsResult = rewardRepository.getRewardRedemptions(session.userId)
+                val allRedemptions = when (redemptionsResult) {
+                    is com.chorequest.utils.Result.Success -> redemptionsResult.data
+                    else -> emptyList()
+                }
+                val pendingRedemptions = allRedemptions.filter { 
+                    it.status == RewardRedemptionStatus.PENDING 
+                }
+
+                // Combine chores and user data flows to get real-time updates
+                combine(
+                    choreRepository.getAllChores(),
+                    userRepository.getAllUsers(),
+                    rewardRepository.getAllRewards()
+                ) { allChores, allUsers, allRewards ->
+                    // Find current user
+                    val user = allUsers.find { it.id == session.userId }
+                    val totalPoints = user?.pointsBalance ?: 0
+                    
+                    val myChores = allChores.filter { 
                         it.assignedTo.contains(session.userId) 
                     }
+                    // Include both PENDING and IN_PROGRESS chores in "to do"
                     val pendingChores = myChores.filter { 
-                        it.status == com.chorequest.domain.models.ChoreStatus.PENDING 
+                        it.status == com.chorequest.domain.models.ChoreStatus.PENDING ||
+                        it.status == com.chorequest.domain.models.ChoreStatus.IN_PROGRESS
                     }
                     val completedToday = myChores.filter { 
                         it.status == com.chorequest.domain.models.ChoreStatus.COMPLETED ||
                         it.status == com.chorequest.domain.models.ChoreStatus.VERIFIED
                     }.size
 
-                    // Calculate total points (from mock or session)
-                    val totalPoints = 0 // TODO: Get from user profile
+                    // Get unassigned chores (available for any user to complete) - "Earn Extra Points"
+                    val unassignedChores = allChores.filter { 
+                        it.assignedTo.isEmpty() &&
+                        (it.status == com.chorequest.domain.models.ChoreStatus.PENDING ||
+                         it.status == com.chorequest.domain.models.ChoreStatus.IN_PROGRESS)
+                    }
 
-                    _uiState.value = ChildDashboardState.Success(
+                    // Match pending redemptions with their rewards
+                    val pendingRewardsWithDetails = pendingRedemptions.mapNotNull { redemption ->
+                        val reward = allRewards.find { it.id == redemption.rewardId }
+                        if (reward != null) {
+                            Pair(redemption, reward)
+                        } else {
+                            null
+                        }
+                    }
+
+                    ChildDashboardState.Success(
                         userName = session.userName,
                         totalPoints = totalPoints,
                         pendingChoresCount = pendingChores.size,
                         completedTodayCount = completedToday,
-                        myChores = pendingChores.take(5)
+                        myChores = pendingChores.take(5),
+                        extraPointsChores = unassignedChores.take(5),
+                        pendingRewards = pendingRewardsWithDetails
                     )
+                }.collect { state ->
+                    _uiState.value = state
                 }
             } catch (e: Exception) {
                 _uiState.value = ChildDashboardState.Error(e.message ?: "Unknown error")
@@ -150,11 +196,17 @@ class ChildDashboardViewModel @Inject constructor(
     }
 
     /**
-     * Logout - clears session and triggers navigation callback
+     * Logout - cancels sync work, clears all local data and session, then triggers navigation callback
      */
     fun logout(onLogoutComplete: () -> Unit) {
         viewModelScope.launch {
-            sessionManager.clearSession()
+            // Cancel any pending sync work FIRST to prevent sync from running during/after logout
+            syncManager.cancelSyncWork()
+            android.util.Log.i("ChildDashboardViewModel", "Cancelled sync work before logout")
+            
+            // Now logout (clears session and local data)
+            authRepository.logout()
+            
             onLogoutComplete()
         }
     }
@@ -170,7 +222,9 @@ sealed class ChildDashboardState {
         val totalPoints: Int,
         val pendingChoresCount: Int,
         val completedTodayCount: Int,
-        val myChores: List<Chore>
+        val myChores: List<Chore>,
+        val extraPointsChores: List<Chore> = emptyList(), // Unassigned chores available for any user
+        val pendingRewards: List<Pair<RewardRedemption, com.chorequest.domain.models.Reward>> = emptyList() // Pending reward redemptions
     ) : ChildDashboardState()
     data class Error(val message: String) : ChildDashboardState()
 }

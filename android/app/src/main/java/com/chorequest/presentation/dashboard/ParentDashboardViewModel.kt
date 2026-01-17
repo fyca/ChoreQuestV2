@@ -4,9 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import com.chorequest.data.local.SessionManager
+import com.chorequest.data.repository.AuthRepository
 import com.chorequest.data.repository.ChoreRepository
+import com.chorequest.data.repository.RewardRepository
+import com.chorequest.data.repository.UserRepository
 import com.chorequest.domain.models.Chore
 import com.chorequest.domain.models.User
+import com.chorequest.domain.models.RewardRedemption
+import com.chorequest.domain.models.RewardRedemptionStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
@@ -20,7 +25,10 @@ import javax.inject.Inject
 @HiltViewModel
 class ParentDashboardViewModel @Inject constructor(
     private val choreRepository: ChoreRepository,
+    private val rewardRepository: RewardRepository,
+    private val userRepository: UserRepository,
     private val sessionManager: SessionManager,
+    private val authRepository: AuthRepository,
     private val syncRepository: com.chorequest.data.repository.SyncRepository,
     val syncManager: com.chorequest.workers.SyncManager,
     private val networkObserver: com.chorequest.utils.NetworkConnectivityObserver
@@ -96,8 +104,22 @@ class ParentDashboardViewModel @Inject constructor(
                     return@launch
                 }
 
-                // Get all chores
-                choreRepository.getAllChores().collect { chores ->
+                // Fetch pending reward redemptions for the family
+                val redemptionsResult = rewardRepository.getRewardRedemptions(userId = null, familyId = session.familyId)
+                val allRedemptions = when (redemptionsResult) {
+                    is com.chorequest.utils.Result.Success -> redemptionsResult.data
+                    else -> emptyList()
+                }
+                val pendingRedemptions = allRedemptions.filter { 
+                    it.status == RewardRedemptionStatus.PENDING 
+                }
+
+                // Get all chores and rewards
+                combine(
+                    choreRepository.getAllChores(),
+                    rewardRepository.getAllRewards(),
+                    userRepository.getAllUsers()
+                ) { chores, rewards, users ->
                     val pendingChores = chores.filter { 
                         it.status == com.chorequest.domain.models.ChoreStatus.PENDING 
                     }
@@ -108,14 +130,31 @@ class ParentDashboardViewModel @Inject constructor(
                         it.status == com.chorequest.domain.models.ChoreStatus.VERIFIED 
                     }
 
-                    _uiState.value = ParentDashboardState.Success(
+                    // Calculate total family points
+                    val totalFamilyPoints = users.sumOf { it.pointsBalance }
+
+                    // Match pending redemptions with their rewards and users
+                    val pendingRewardsWithDetails = pendingRedemptions.mapNotNull { redemption ->
+                        val reward = rewards.find { it.id == redemption.rewardId }
+                        val user = users.find { it.id == redemption.userId }
+                        if (reward != null && user != null) {
+                            Triple(redemption, reward, user)
+                        } else {
+                            null
+                        }
+                    }
+
+                    ParentDashboardState.Success(
                         userName = session.userName,
                         pendingChoresCount = pendingChores.size,
                         completedChoresCount = completedChores.size + verifiedChores.size,
                         awaitingVerificationCount = completedChores.size,
-                        totalFamilyPoints = 0, // TODO: Calculate from users
-                        recentChores = chores.take(5)
+                        totalFamilyPoints = totalFamilyPoints,
+                        recentChores = chores.take(5),
+                        pendingRewards = pendingRewardsWithDetails
                     )
+                }.collect { state ->
+                    _uiState.value = state
                 }
             } catch (e: Exception) {
                 _uiState.value = ParentDashboardState.Error(e.message ?: "Unknown error")
@@ -153,11 +192,61 @@ class ParentDashboardViewModel @Inject constructor(
     }
 
     /**
-     * Logout - clears session and triggers navigation callback
+     * Approve a reward redemption
+     */
+    fun approveReward(redemptionId: String) {
+        viewModelScope.launch {
+            val session = sessionManager.loadSession() ?: return@launch
+            rewardRepository.approveRewardRedemption(session.userId, redemptionId).collect { result ->
+                when (result) {
+                    is com.chorequest.utils.Result.Success -> {
+                        // Refresh dashboard to update pending rewards list
+                        loadDashboardData()
+                    }
+                    is com.chorequest.utils.Result.Error -> {
+                        // TODO: Show error message
+                        android.util.Log.e("ParentDashboardViewModel", "Failed to approve reward: ${result.message}")
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    /**
+     * Deny a reward redemption
+     */
+    fun denyReward(redemptionId: String) {
+        viewModelScope.launch {
+            val session = sessionManager.loadSession() ?: return@launch
+            rewardRepository.denyRewardRedemption(session.userId, redemptionId).collect { result ->
+                when (result) {
+                    is com.chorequest.utils.Result.Success -> {
+                        // Refresh dashboard to update pending rewards list
+                        loadDashboardData()
+                    }
+                    is com.chorequest.utils.Result.Error -> {
+                        // TODO: Show error message
+                        android.util.Log.e("ParentDashboardViewModel", "Failed to deny reward: ${result.message}")
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    /**
+     * Logout - cancels sync work, clears all local data and session, then triggers navigation callback
      */
     fun logout(onLogoutComplete: () -> Unit) {
         viewModelScope.launch {
-            sessionManager.clearSession()
+            // Cancel any pending sync work FIRST to prevent sync from running during/after logout
+            syncManager.cancelSyncWork()
+            android.util.Log.i("ParentDashboardViewModel", "Cancelled sync work before logout")
+            
+            // Now logout (clears session and local data)
+            authRepository.logout()
+            
             onLogoutComplete()
         }
     }
@@ -174,7 +263,8 @@ sealed class ParentDashboardState {
         val completedChoresCount: Int,
         val awaitingVerificationCount: Int,
         val totalFamilyPoints: Int,
-        val recentChores: List<Chore>
+        val recentChores: List<Chore>,
+        val pendingRewards: List<Triple<RewardRedemption, com.chorequest.domain.models.Reward, User>> = emptyList() // Pending reward redemptions with details
     ) : ParentDashboardState()
     data class Error(val message: String) : ParentDashboardState()
 }

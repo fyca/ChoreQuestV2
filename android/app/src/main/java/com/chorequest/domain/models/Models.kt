@@ -30,8 +30,12 @@ enum class TransactionType {
     EARN, SPEND
 }
 
+enum class RewardRedemptionStatus {
+    PENDING, APPROVED, DENIED, COMPLETED
+}
+
 enum class DeviceType {
-    ANDROID, WEB
+    ANDROID, WEB, UNKNOWN
 }
 
 // User Model
@@ -121,6 +125,21 @@ data class Reward(
     val createdAt: String
 )
 
+// Reward Redemption Model
+data class RewardRedemption(
+    val id: String,
+    val userId: String,
+    val rewardId: String,
+    val status: RewardRedemptionStatus,
+    val requestedAt: String,
+    val approvedBy: String? = null,
+    val approvedAt: String? = null,
+    val deniedBy: String? = null,
+    val deniedAt: String? = null,
+    val completedAt: String? = null,
+    val pointCost: Int
+)
+
 // Transaction Model
 data class Transaction(
     val id: String,
@@ -183,7 +202,7 @@ data class ActivityLog(
     val details: ActivityDetails,
     val referenceId: String? = null,
     val referenceType: String? = null,
-    val metadata: ActivityMetadata
+    val metadata: ActivityMetadata? = null // Nullable to handle old logs that may not have metadata
 )
 
 data class ActivityDetails(
@@ -191,15 +210,21 @@ data class ActivityDetails(
     val choreDueDate: String? = null,
     val subtaskTitle: String? = null,
     val pointsAmount: Int? = null,
+    val pointsEarned: Int? = null,   // from backend chore_completed
+    val pointsAwarded: Int? = null,  // from backend chore_verified
     val pointsPrevious: Int? = null,
     val pointsNew: Int? = null,
     val rewardTitle: String? = null,
     val rewardCost: Int? = null,
+    val pointsSpent: Int? = null,   // from backend reward_redeemed
+    val remainingBalance: Int? = null,
     val reason: String? = null,
     val oldValue: Any? = null,
     val newValue: Any? = null,
     val photoUrl: String? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    val hadPhotoProof: Boolean? = null,
+    val updatedFields: List<String>? = null
 )
 
 data class ActivityMetadata(
@@ -253,7 +278,9 @@ data class QRCodePayload(
     val token: String,
     val version: Int,
     val appVersion: String,
-    val timestamp: String
+    val timestamp: String,
+    val ownerEmail: String, // Email of the primary parent (needed to identify which Drive to access)
+    val folderId: String // Drive folder ID where family data is stored (parent's Drive)
 )
 
 // Device Session (stored locally)

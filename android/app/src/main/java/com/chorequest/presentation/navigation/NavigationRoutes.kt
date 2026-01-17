@@ -55,6 +55,7 @@ sealed class NavigationRoutes(val route: String) {
     object ActivityLog : NavigationRoutes("activity_log")
     object Settings : NavigationRoutes("settings")
     object Profile : NavigationRoutes("profile")
+    object EditProfile : NavigationRoutes("edit_profile")
     
     // Games
     object Games : NavigationRoutes("games")

@@ -27,6 +27,7 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.rememberAsyncImagePainter
 import com.chorequest.domain.models.Subtask
+import com.chorequest.domain.models.ChoreStatus
 import com.chorequest.presentation.components.ChoreQuestTopAppBar
 import com.chorequest.presentation.components.LoadingScreen
 import com.chorequest.presentation.components.CelebrationAnimation
@@ -53,6 +54,7 @@ fun CompleteChoreScreen(
     var pointsEarned by remember { mutableStateOf(0) }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var showPhotoOptions by remember { mutableStateOf(false) }
+    var initialChoreStatus by remember { mutableStateOf<ChoreStatus?>(null) }
     
     val context = LocalContext.current
     
@@ -69,12 +71,31 @@ fun CompleteChoreScreen(
         viewModel.loadChoreDetail(choreId)
     }
 
-    // Update subtasks when chore loads
+    // Update subtasks when chore loads and track initial status
     LaunchedEffect(choreDetailState) {
         if (choreDetailState is ChoreDetailState.Success) {
             val chore = (choreDetailState as ChoreDetailState.Success).chore
             if (subtasks.isEmpty()) {
                 subtasks = chore.subtasks
+            }
+            // Store initial status if not set
+            if (initialChoreStatus == null) {
+                initialChoreStatus = chore.status
+            }
+        }
+    }
+    
+    // Show celebration when chore is successfully completed
+    LaunchedEffect(choreDetailState) {
+        if (choreDetailState is ChoreDetailState.Success) {
+            val chore = (choreDetailState as ChoreDetailState.Success).chore
+            // Only show celebration if the chore status changed from pending to completed/verified
+            val wasPending = initialChoreStatus == ChoreStatus.PENDING
+            val isNowCompleted = chore.status == ChoreStatus.COMPLETED || 
+                                 chore.status == ChoreStatus.VERIFIED
+            if (wasPending && isNowCompleted && !showCelebration) {
+                pointsEarned = chore.pointValue
+                showCelebration = true
             }
         }
     }
@@ -387,10 +408,9 @@ fun CompleteChoreScreen(
                     confirmButton = {
                         Button(
                             onClick = {
-                                pointsEarned = chore.pointValue
                                 viewModel.completeChore(choreId, photoUri)
                                 showConfirmDialog = false
-                                showCelebration = true
+                                // Don't show celebration yet - wait for success response
                             }
                         ) {
                             Text("Yes, Complete!")

@@ -25,6 +25,7 @@ import com.chorequest.presentation.components.ChoreQuestTopAppBar
 @Composable
 fun ProfileScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToEditProfile: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val user by viewModel.userState.collectAsState()
@@ -43,7 +44,15 @@ fun ProfileScreen(
         topBar = {
             ChoreQuestTopAppBar(
                 title = "👤 Profile",
-                onNavigateBack = onNavigateBack
+                onNavigateBack = onNavigateBack,
+                actions = {
+                    IconButton(onClick = onNavigateToEditProfile) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Profile"
+                        )
+                    }
+                }
             )
         }
     ) { padding ->

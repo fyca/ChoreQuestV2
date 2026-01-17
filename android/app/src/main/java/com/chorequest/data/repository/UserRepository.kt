@@ -12,6 +12,7 @@ import com.chorequest.utils.Result
 import com.chorequest.utils.QRCodeUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -73,8 +74,11 @@ class UserRepository @Inject constructor(
                 parentUserId = session.userId,
                 name = name,
                 role = role,
+                canEarnPoints = canEarnPoints,
                 avatarUrl = avatarUrl
             )
+            Log.d("UserRepository", "Creating user with canEarnPoints: $canEarnPoints (type: ${canEarnPoints::class.java.simpleName})")
+            Log.d("UserRepository", "Request object: parentUserId=${request.parentUserId}, name=${request.name}, role=${request.role}, canEarnPoints=${request.canEarnPoints}, avatarUrl=${request.avatarUrl}")
             val response = api.createUser(request = request)
             
             if (response.isSuccessful && response.body()?.success == true) {
@@ -104,6 +108,62 @@ class UserRepository @Inject constructor(
     }
 
     /**
+     * Update user profile
+     */
+    fun updateUser(
+        userId: String,
+        name: String? = null,
+        avatarUrl: String? = null,
+        settings: UserSettings? = null
+    ): Flow<Result<User>> = flow {
+        emit(Result.Loading)
+        try {
+            val session = sessionManager.loadSession()
+            if (session == null) {
+                emit(Result.Error("No active session"))
+                return@flow
+            }
+
+            val updates = com.chorequest.data.remote.UserUpdates(
+                name = name,
+                avatarUrl = avatarUrl,
+                settings = settings
+            )
+
+            val request = com.chorequest.data.remote.UpdateUserRequest(
+                parentUserId = session.userId,
+                targetUserId = userId,
+                updates = updates
+            )
+
+            val response = api.updateUser(request = request)
+
+            if (response.isSuccessful && response.body()?.success == true) {
+                val updatedUser = response.body()?.user
+                if (updatedUser != null) {
+                    // Update local database
+                    userDao.updateUser(updatedUser.toEntity())
+                    Log.i("UserRepository", "User updated successfully: ${updatedUser.name}")
+                    emit(Result.Success(updatedUser))
+                } else {
+                    emit(Result.Error("Server response missing user data"))
+                }
+            } else {
+                val errorBody = response.body()
+                val errorMessage = errorBody?.error
+                    ?: errorBody?.message
+                    ?: response.message()
+                    ?: "Failed to update user"
+                Log.e("UserRepository", "Update user failed: $errorMessage")
+                emit(Result.Error(errorMessage))
+            }
+        } catch (e: Exception) {
+            Log.e("UserRepository", "Update user failed: ${e.message}")
+            emit(Result.Error("Failed to update user: ${e.message}"))
+        }
+    }
+
+    /**
      * Generate QR code for a user
      */
     fun generateQRCode(userId: String): Flow<Result<String>> = flow {
@@ -112,12 +172,24 @@ class UserRepository @Inject constructor(
             val user = userDao.getUserById(userId)?.toDomain()
             if (user != null) {
                 val session = sessionManager.loadSession()
+                
+                // Get primary parent's email (ownerEmail)
+                val allUsers = userDao.getAllUsers().first()
+                val primaryParent = allUsers.find { it.toDomain().isPrimaryParent }
+                val ownerEmail = primaryParent?.toDomain()?.email
+                    ?: throw Exception("Primary parent not found")
+                
+                // Get folder ID from session (driveWorkbookLink contains the folder ID)
+                val folderId = session?.driveWorkbookLink ?: throw Exception("Folder ID not found in session")
+                
                 val qrCodeData = QRCodeUtils.generateQRCodeData(
                     userId = userId,
                     userName = user.name,
                     familyId = session?.familyId ?: "",
                     authToken = user.authToken,
-                    tokenVersion = user.tokenVersion
+                    tokenVersion = user.tokenVersion,
+                    ownerEmail = ownerEmail,
+                    folderId = folderId
                 )
                 emit(Result.Success(qrCodeData))
             } else {
@@ -148,12 +220,24 @@ class UserRepository @Inject constructor(
                 
                 // Generate new QR code
                 val session = sessionManager.loadSession()
+                
+                // Get primary parent's email (ownerEmail)
+                val allUsers = userDao.getAllUsers().first()
+                val primaryParent = allUsers.find { it.toDomain().isPrimaryParent }
+                val ownerEmail = primaryParent?.toDomain()?.email
+                    ?: throw Exception("Primary parent not found")
+                
+                // Get folder ID from session (driveWorkbookLink contains the folder ID)
+                val folderId = session?.driveWorkbookLink ?: throw Exception("Folder ID not found in session")
+                
                 val qrCodeData = QRCodeUtils.generateQRCodeData(
                     userId = userId,
                     userName = updatedUser.name,
                     familyId = session?.familyId ?: "",
                     authToken = updatedUser.authToken,
-                    tokenVersion = updatedUser.tokenVersion
+                    tokenVersion = updatedUser.tokenVersion,
+                    ownerEmail = ownerEmail,
+                    folderId = folderId
                 )
                 
                 emit(Result.Success(qrCodeData))

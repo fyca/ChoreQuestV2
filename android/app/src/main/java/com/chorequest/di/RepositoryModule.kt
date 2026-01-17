@@ -20,9 +20,13 @@ object RepositoryModule {
     fun provideAuthRepository(
         api: ChoreQuestApi,
         sessionManager: SessionManager,
-        userDao: UserDao
+        userDao: UserDao,
+        choreDao: ChoreDao,
+        rewardDao: RewardDao,
+        activityLogDao: ActivityLogDao,
+        transactionDao: TransactionDao
     ): AuthRepository {
-        return AuthRepository(api, sessionManager, userDao)
+        return AuthRepository(api, sessionManager, userDao, choreDao, rewardDao, activityLogDao, transactionDao)
     }
 
     @Provides

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chorequest.data.local.SessionManager
 import com.chorequest.data.repository.RewardRepository
+import com.chorequest.data.repository.UserRepository
 import com.chorequest.domain.models.Reward
 import com.chorequest.utils.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,11 +20,24 @@ import javax.inject.Inject
 @HiltViewModel
 class RewardViewModel @Inject constructor(
     private val rewardRepository: RewardRepository,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    val userRepository: UserRepository
 ) : ViewModel() {
 
     private val _allRewards = MutableStateFlow<List<Reward>>(emptyList())
     val allRewards: StateFlow<List<Reward>> = _allRewards.asStateFlow()
+    
+    // User points balance - observe user data to keep it updated
+    val userPointsBalance: StateFlow<Int> = userRepository.getAllUsers()
+        .map { users ->
+            val session = sessionManager.loadSession()
+            if (session != null) {
+                users.find { it.id == session.userId }?.pointsBalance ?: 0
+            } else {
+                0
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _rewardDetailState = MutableStateFlow<RewardDetailState>(RewardDetailState.Loading)
     val rewardDetailState: StateFlow<RewardDetailState> = _rewardDetailState.asStateFlow()

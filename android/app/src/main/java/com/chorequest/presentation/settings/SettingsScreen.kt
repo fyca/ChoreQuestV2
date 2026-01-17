@@ -183,7 +183,12 @@ fun SettingsScreen(
     // Final confirmation dialog
     if (showDeleteConfirmDialog) {
         AlertDialog(
-            onDismissRequest = { showDeleteConfirmDialog = false },
+            onDismissRequest = { 
+                // Prevent dismissing while operation is in progress
+                if (deleteState !is DeleteAllDataState.Loading) {
+                    showDeleteConfirmDialog = false
+                }
+            },
             icon = {
                 Icon(
                     imageVector = Icons.Default.Warning,

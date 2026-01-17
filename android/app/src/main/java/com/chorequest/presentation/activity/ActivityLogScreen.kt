@@ -232,7 +232,8 @@ private fun formatActivityDescription(log: ActivityLog): String {
     val choreTitle = log.details.choreTitle
     val rewardTitle = log.details.rewardTitle
     val points = log.details.pointsAmount
-    val pointsEarned = log.details.pointsAmount // For completed chores
+    val pointsEarned = log.details.pointsEarned ?: log.details.pointsAmount // chore_completed
+    val pointsAwarded = log.details.pointsAwarded // chore_verified
     val pointsPrevious = log.details.pointsPrevious
     val pointsNew = log.details.pointsNew
     val rewardCost = log.details.rewardCost
@@ -269,7 +270,8 @@ private fun formatActivityDescription(log: ActivityLog): String {
             "${actorName} completed chore \"${choreTitle ?: "Untitled"}\"$pointsText"
         }
         ActivityActionType.CHORE_VERIFIED -> {
-            val pointsText = if (points != null && points > 0) " (awarded $points points)" else ""
+            val pts = pointsAwarded ?: points
+            val pointsText = if (pts != null && pts > 0) " (awarded $pts points)" else ""
             "${actorName} verified ${targetName ?: "someone"}'s chore \"${choreTitle ?: "Untitled"}\"$pointsText"
         }
         ActivityActionType.CHORE_REJECTED -> {
@@ -301,7 +303,7 @@ private fun formatActivityDescription(log: ActivityLog): String {
             "${actorName} deleted reward \"${rewardTitle ?: "Untitled"}\""
         }
         ActivityActionType.REWARD_REDEEMED -> {
-            val costText = rewardCost?.let { " for $it points" } ?: ""
+            val costText = (log.details.pointsSpent ?: rewardCost)?.let { " for $it points" } ?: ""
             "${actorName} redeemed reward \"${rewardTitle ?: "Untitled"}\"$costText"
         }
         ActivityActionType.REWARD_APPROVED -> {

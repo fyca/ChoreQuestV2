@@ -29,18 +29,19 @@ import com.chorequest.presentation.components.*
 @Composable
 fun RewardsMarketplaceScreen(
     onNavigateBack: () -> Unit,
-    userPointsBalance: Int = 0, // TODO: Get from user profile
+    userPointsBalance: Int = 0, // Deprecated - now fetched from ViewModel
     viewModel: RewardViewModel = hiltViewModel()
 ) {
     val allRewards by viewModel.allRewards.collectAsState()
     val redeemState by viewModel.redeemState.collectAsState()
+    val actualUserPointsBalance by viewModel.userPointsBalance.collectAsState()
     var selectedReward by remember { mutableStateOf<Reward?>(null) }
 
     // Show confirmation dialog when reward selected
-    selectedReward?.let { reward ->
+        selectedReward?.let { reward ->
         RedeemConfirmationDialog(
             reward = reward,
-            userPoints = userPointsBalance,
+            userPoints = actualUserPointsBalance,
             onDismiss = { selectedReward = null },
             onConfirm = {
                 viewModel.redeemReward(reward.id)
@@ -84,7 +85,7 @@ fun RewardsMarketplaceScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "$userPointsBalance",
+                                text = "$actualUserPointsBalance",
                                 fontWeight = FontWeight.Bold,
                                 color = Color.Black
                             )
@@ -138,7 +139,7 @@ fun RewardsMarketplaceScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "You have $userPointsBalance points to spend",
+                                    text = "You have $actualUserPointsBalance points to spend",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 )
@@ -151,7 +152,7 @@ fun RewardsMarketplaceScreen(
                 items(allRewards) { reward ->
                     RewardMarketplaceCard(
                         reward = reward,
-                        userPoints = userPointsBalance,
+                        userPoints = actualUserPointsBalance,
                         onClick = { selectedReward = reward }
                     )
                 }

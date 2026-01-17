@@ -32,6 +32,12 @@ interface ChoreQuestApi {
         @Query("token") token: String,
         @Query("tokenVersion") tokenVersion: Int
     ): Response<ValidationResponse>
+    
+    // Check authorization status (triggers OAuth flow if needed)
+    @GET(".")
+    suspend fun checkAuthorization(
+        @Query("path") path: String = "authorize"
+    ): Response<Any>
 
     // User Management
     @POST(".")
@@ -40,6 +46,13 @@ interface ChoreQuestApi {
         @Query("action") action: String = "create",
         @Body request: CreateUserRequest
     ): Response<CreateUserResponse>
+
+    @POST(".")
+    suspend fun updateUser(
+        @Query("path") path: String = "users",
+        @Query("action") action: String = "update",
+        @Body request: UpdateUserRequest
+    ): Response<UpdateUserResponse>
 
     @GET(".")
     suspend fun listUsersLegacy(
@@ -53,7 +66,8 @@ interface ChoreQuestApi {
     suspend fun getData(
         @Query("path") path: String = "data",
         @Query("action") action: String = "get",
-        @Query("type") type: String
+        @Query("type") type: String,
+        @Query("familyId") familyId: String? = null
     ): Response<ApiResponse<Any>>
 
     @POST(".")
@@ -114,6 +128,28 @@ interface ChoreQuestApi {
         @Query("action") action: String = "list",
         @Query("familyId") familyId: String
     ): Response<RewardsListResponse>
+    
+    @GET(".")
+    suspend fun getRewardRedemptions(
+        @Query("path") path: String = "rewards",
+        @Query("action") action: String = "redemptions",
+        @Query("userId") userId: String? = null,
+        @Query("familyId") familyId: String? = null
+    ): Response<RewardRedemptionsResponse>
+    
+    @POST(".")
+    suspend fun approveRewardRedemption(
+        @Query("path") path: String = "rewards",
+        @Query("action") action: String = "approve",
+        @Body request: ApproveRewardRedemptionRequest
+    ): Response<RedeemRewardResponse>
+    
+    @POST(".")
+    suspend fun denyRewardRedemption(
+        @Query("path") path: String = "rewards",
+        @Query("action") action: String = "deny",
+        @Body request: DenyRewardRedemptionRequest
+    ): Response<RedeemRewardResponse>
 
     // Users (Drive-backed via Apps Script UserManager.gs)
     @GET(".")
@@ -150,6 +186,7 @@ interface ChoreQuestApi {
     suspend fun getActivityLogs(
         @Query("path") path: String = "activity",
         @Query("action") action: String = "list",
+        @Query("familyId") familyId: String? = null,
         @Query("userId") userId: String? = null,
         @Query("actionType") actionType: String? = null,
         @Query("startDate") startDate: String? = null,
@@ -205,7 +242,9 @@ interface ChoreQuestApi {
 
 // Request/Response models
 data class GoogleAuthRequest(
-    val googleToken: String,
+    val googleToken: String, // ID token for authentication
+    val accessToken: String? = null, // OAuth access token for Drive API (direct from Android)
+    val serverAuthCode: String? = null, // Server auth code for OAuth token exchange (fallback)
     val deviceType: String = "android",
     val path: String = "auth",
     val action: String = "google"
@@ -219,6 +258,8 @@ data class QRAuthRequest(
     val deviceId: String,
     val deviceName: String,
     val deviceType: String = "android",
+    val ownerEmail: String, // Email of primary parent (needed to identify which Drive to access)
+    val folderId: String, // Drive folder ID where family data is stored (parent's Drive)
     val path: String = "auth",
     val action: String = "qr"
 )

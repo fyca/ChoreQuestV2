@@ -13,16 +13,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.chorequest.utils.AuthorizationHelper
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.GoogleAuthException
+import com.google.android.gms.auth.UserRecoverableAuthException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
 
 /**
@@ -37,14 +45,20 @@ fun LoginScreen(
 ) {
     val loginState by viewModel.loginState.collectAsState()
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
 
     // Google Sign-In client - sign out on screen entry to allow account selection
+    // IMPORTANT: Request Drive scopes and server auth code for OAuth access token
     val googleSignInClient = remember {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(com.chorequest.utils.Constants.GOOGLE_WEB_CLIENT_ID)
             .requestEmail()
             .requestProfile() // Request profile to get name and picture
+            .requestScopes(
+                Scope(com.google.android.gms.common.Scopes.DRIVE_FILE) // Request Drive file access
+            )
+            .requestServerAuthCode(com.chorequest.utils.Constants.GOOGLE_WEB_CLIENT_ID, true) // Request server auth code for OAuth token exchange
             .build()
         GoogleSignIn.getClient(context, gso)
     }
@@ -60,6 +74,9 @@ fun LoginScreen(
         }
     }
 
+    // Store the current Google account email for authorization URL
+    var currentGoogleEmail by remember { mutableStateOf<String?>(null) }
+    
     // Google Sign-In launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -69,10 +86,25 @@ fun LoginScreen(
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
-                android.util.Log.d("LoginScreen", "Google account: ${account.email}, idToken present: ${account.idToken != null}")
+                android.util.Log.d("LoginScreen", "Google account: ${account.email}, idToken present: ${account.idToken != null}, serverAuthCode present: ${account.serverAuthCode != null}")
+                
+                // Check if Drive scope was granted during sign-in
+                val grantedScopes = account.grantedScopes
+                val hasDriveScope = grantedScopes?.any { it.scopeUri.contains("drive") } == true
+                android.util.Log.d("LoginScreen", "Granted scopes: ${grantedScopes?.joinToString { it.scopeUri } ?: "none"}, hasDriveScope: $hasDriveScope")
+                
+                // Store email for authorization URL
+                currentGoogleEmail = account.email
                 account.idToken?.let { idToken ->
+                    val serverAuthCode = account.serverAuthCode
+                    android.util.Log.d("LoginScreen", "Server auth code: ${if (serverAuthCode != null) "present (${serverAuthCode.length} chars)" else "null"}")
+                    
+                    // Skip GoogleAuthUtil.getToken() to avoid browser prompts
+                    // Use server auth code which Apps Script can exchange for access token
+                    // This requires OAuth credentials in Apps Script, but avoids browser prompts in the app
+                    android.util.Log.d("LoginScreen", "Using server auth code flow (no GoogleAuthUtil to avoid browser prompt)")
                     android.util.Log.d("LoginScreen", "Calling viewModel.loginWithGoogle")
-                    viewModel.loginWithGoogle(idToken)
+                    viewModel.loginWithGoogle(idToken, account.email, null, serverAuthCode)
                 } ?: run {
                     android.util.Log.e("LoginScreen", "ID token is null")
                 }
@@ -113,6 +145,72 @@ fun LoginScreen(
             }
         }
     }
+    
+    // Show authorization dialog if needed
+    when (val state = loginState) {
+        is LoginState.AuthorizationRequired -> {
+            AlertDialog(
+                onDismissRequest = { 
+                    viewModel.clearError()
+                },
+                title = { Text("Authorization Required") },
+                text = {
+                    Column {
+                        Text(state.message)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Click 'Authorize' to open your browser and grant Drive access. After authorizing, return to the app and click 'Retry Login'.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                },
+                        confirmButton = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                // Try using UriHandler first (Compose way)
+                                try {
+                                    val url = state.url.takeIf { it.isNotBlank() && (it.startsWith("http://") || it.startsWith("https://")) }
+                                        ?: com.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_URL
+                                    android.util.Log.d("LoginScreen", "Opening URL with UriHandler: $url")
+                                    uriHandler.openUri(url)
+                                } catch (e: Exception) {
+                                    android.util.Log.e("LoginScreen", "UriHandler failed, trying AuthorizationHelper: ${e.message}")
+                                    // Fallback to AuthorizationHelper
+                                    AuthorizationHelper.openAuthorizationUrl(context, state.url)
+                                }
+                                // Don't clear error - keep the dialog open so user can retry
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Authorize")
+                        }
+                        Button(
+                            onClick = {
+                                viewModel.retryLoginAfterAuthorization()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Retry Login")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.clearError()
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+        else -> {}
+    }
 
     Box(
         modifier = Modifier
@@ -128,6 +226,18 @@ fun LoginScreen(
                 ErrorContent(
                     message = (loginState as LoginState.Error).message,
                     onRetry = { viewModel.clearError() }
+                )
+            }
+            is LoginState.AuthorizationRequired -> {
+                // Show login content while authorization dialog is visible
+                LoginContent(
+                    onGoogleSignIn = {
+                        val signInIntent = googleSignInClient.signInIntent
+                        googleSignInLauncher.launch(signInIntent)
+                    },
+                    onQRCodeLogin = {
+                        viewModel.navigateToQRScanner()
+                    }
                 )
             }
             else -> {

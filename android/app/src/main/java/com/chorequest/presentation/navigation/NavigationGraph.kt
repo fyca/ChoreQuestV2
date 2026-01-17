@@ -219,8 +219,7 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.RewardsMarketplace.route) {
             RewardsMarketplaceScreen(
-                onNavigateBack = { navController.popBackStack() },
-                userPointsBalance = 100 // TODO: Get from user profile
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 
@@ -281,6 +280,15 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.Profile.route) {
             ProfileScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToEditProfile = {
+                    navController.navigate(NavigationRoutes.EditProfile.route)
+                }
+            )
+        }
+        
+        composable(NavigationRoutes.EditProfile.route) {
+            com.chorequest.presentation.profile.EditProfileScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

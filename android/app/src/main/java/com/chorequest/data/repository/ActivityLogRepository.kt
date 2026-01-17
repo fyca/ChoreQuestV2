@@ -72,6 +72,7 @@ class ActivityLogRepository @Inject constructor(
             }
 
             val response = api.getActivityLogs(
+                familyId = session.familyId,
                 userId = userId,
                 actionType = actionType,
                 startDate = startDate,

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -11,11 +12,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.chorequest.presentation.components.*
+import com.chorequest.domain.models.RewardRedemption
+import com.chorequest.domain.models.Reward
+import com.chorequest.domain.models.User
 
 /**
  * Parent dashboard screen
@@ -106,6 +113,7 @@ fun ParentDashboardScreen(
                     onChoreClick = onNavigateToChoreDetail,
                     onCompleteChoreClick = onNavigateToCompleteChore,
                     currentUserId = viewModel.currentUserId,
+                    viewModel = viewModel,
                     modifier = Modifier.padding(padding)
                 )
             }
@@ -125,6 +133,7 @@ private fun ParentDashboardContent(
     onChoreClick: (String) -> Unit,
     onCompleteChoreClick: (String) -> Unit,
     currentUserId: String?,
+    viewModel: ParentDashboardViewModel,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -163,6 +172,28 @@ private fun ParentDashboardContent(
                 onCreateReward = onCreateReward,
                 onViewActivity = onViewActivity
             )
+        }
+
+        // Pending Rewards section (for approval)
+        if (state.pendingRewards.isNotEmpty()) {
+            item {
+                Text(
+                    text = "🎁 Pending Reward Approvals",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            items(state.pendingRewards) { (redemption, reward, user) ->
+                PendingRewardApprovalCard(
+                    redemption = redemption,
+                    reward = reward,
+                    user = user,
+                    onApprove = { viewModel.approveReward(redemption.id) },
+                    onDeny = { viewModel.denyReward(redemption.id) }
+                )
+            }
         }
 
         // Recent activity
@@ -369,6 +400,143 @@ private fun QuickActionButton(
     }
 }
 
+@Composable
+private fun PendingRewardApprovalCard(
+    redemption: RewardRedemption,
+    reward: Reward,
+    user: User,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Reward icon
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.secondary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = reward.imageUrl ?: "🎁",
+                        fontSize = 32.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = reward.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Text(
+                        text = "Requested by: ${user.name}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                    )
+                    
+                    if (reward.description.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = reward.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f),
+                            maxLines = 2
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Points badge
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primary)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Stars,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${redemption.pointCost}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+            
+            Divider(modifier = Modifier.padding(vertical = 12.dp))
+            
+            // Approve/Deny buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onApprove,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Approve")
+                }
+                
+                OutlinedButton(
+                    onClick = onDeny,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Cancel,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Deny")
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChorePreviewCard(
@@ -395,57 +563,57 @@ private fun ChorePreviewCard(
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-            // Status indicator
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .background(
-                        color = when (chore.status) {
-                            com.chorequest.domain.models.ChoreStatus.PENDING -> MaterialTheme.colorScheme.primary
-                            com.chorequest.domain.models.ChoreStatus.COMPLETED -> MaterialTheme.colorScheme.tertiary
-                            com.chorequest.domain.models.ChoreStatus.VERIFIED -> MaterialTheme.colorScheme.secondary
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        shape = RoundedCornerShape(50)
+                // Status indicator
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(
+                            color = when (chore.status) {
+                                com.chorequest.domain.models.ChoreStatus.PENDING -> MaterialTheme.colorScheme.primary
+                                com.chorequest.domain.models.ChoreStatus.COMPLETED -> MaterialTheme.colorScheme.tertiary
+                                com.chorequest.domain.models.ChoreStatus.VERIFIED -> MaterialTheme.colorScheme.secondary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            shape = RoundedCornerShape(50)
+                        )
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = chore.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
-            )
+                    Text(
+                        text = chore.description.take(50) + if (chore.description.length > 50) "..." else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = chore.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = chore.description.take(50) + if (chore.description.length > 50) "..." else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                PointsBadge(points = chore.pointValue)
             }
-
-            PointsBadge(points = chore.pointValue)
-        }
-        
-        // Complete button if assigned to me and pending
-        if (onCompleteClick != null) {
-            Divider()
-            TextButton(
-                onClick = { onCompleteClick() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Complete This Chore")
+            
+            // Complete button if assigned to me and pending
+            if (onCompleteClick != null) {
+                Divider()
+                TextButton(
+                    onClick = { onCompleteClick() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Complete This Chore")
+                }
             }
         }
-    }
     }
 }

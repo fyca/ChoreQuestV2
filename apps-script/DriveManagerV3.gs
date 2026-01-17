@@ -1,0 +1,693 @@
+/**
+ * DriveManagerV3.gs
+ * Handles all Google Drive file operations using Drive API v3
+ * This works better with USER_ACCESSING deployment and mobile app API calls
+ * 
+ * NOTE: FOLDER_NAME and FILE_NAMES are defined in Code.gs
+ */
+
+/**
+ * Get or create ChoreQuest folder in the user's Drive using Drive API v3
+ * 
+ * IMPORTANT: With USER_ACCESSING, if OAuth isn't working, this will access the script owner's Drive.
+ * We use ownerEmail to verify we're accessing the correct user's Drive.
+ * 
+ * @param {string} ownerEmail - REQUIRED: Email of the owner (used to verify we're accessing the correct Drive)
+ * @param {string} accessToken - Optional: OAuth access token for Drive API calls
+ * @returns {string} Folder ID
+ */
+function getChoreQuestFolderV3(ownerEmail, accessToken) {
+  if (!ownerEmail) {
+    Logger.log('ERROR: ownerEmail is required for getChoreQuestFolderV3');
+    throw new Error('ownerEmail is required to identify which user\'s Drive to access');
+  }
+  
+  try {
+    Logger.log('getChoreQuestFolderV3 called - Owner email: ' + ownerEmail);
+    
+    // Get current user for logging (with ME deployment, this will be the script owner)
+    let currentUserEmail = null;
+    try {
+      const currentUser = Session.getActiveUser();
+      currentUserEmail = currentUser.getEmail();
+      Logger.log('Current script user (Session.getActiveUser): ' + currentUserEmail);
+      Logger.log('Target user (ownerEmail): ' + ownerEmail);
+      
+      // With ME deployment, the script runs as the owner, not the user
+      // We MUST use access tokens to access the user's Drive
+      if (currentUserEmail !== ownerEmail) {
+        Logger.log('NOTE: Script is running as ' + currentUserEmail + ' (script owner)');
+        Logger.log('To access ' + ownerEmail + '\'s Drive, we MUST use an access token');
+        if (!accessToken) {
+          Logger.log('ERROR: No access token provided - cannot access user\'s Drive');
+          throw new Error('Access token required: Script runs as ' + currentUserEmail + ' but needs to access ' + ownerEmail + '\'s Drive. An OAuth access token must be provided.');
+        }
+      }
+    } catch (e) {
+      Logger.log('Could not get current user email: ' + e.toString());
+      // If we can't get the current user, we still need an access token
+      if (!accessToken) {
+        Logger.log('ERROR: No access token and cannot verify user context');
+        throw new Error('Access token required: Cannot determine user context. An OAuth access token must be provided.');
+      }
+    }
+    
+    // Search for folder in user's Drive root
+    // CRITICAL: With ME deployment, we MUST use access token for all Drive API calls
+    const query = "name='" + FOLDER_NAME + "' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents";
+    Logger.log('Searching for folder with query: ' + query);
+    Logger.log('Using access token: ' + (accessToken ? 'yes (REQUIRED for ME deployment)' : 'no (will fail with ME deployment)'));
+    
+    // With ME deployment, access token is REQUIRED
+    if (!accessToken) {
+      Logger.log('ERROR: Access token is required with ME deployment');
+      throw new Error('Access token required: With ME deployment, an OAuth access token must be provided to access the user\'s Drive.');
+    }
+    
+    let response;
+    if (accessToken) {
+      // Use access token for Drive API call
+      const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&spaces=drive&fields=files(id,name,owners)';
+      const options = {
+        method: 'get',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken
+        },
+        muteHttpExceptions: true
+      };
+      const httpResponse = UrlFetchApp.fetch(url, options);
+      const responseCode = httpResponse.getResponseCode();
+      const responseText = httpResponse.getContentText();
+      
+      if (responseCode !== 200) {
+        Logger.log('ERROR: Drive API call failed: ' + responseCode + ' - ' + responseText);
+        
+        // Parse error response if possible
+        let errorMessage = 'Drive API call failed: ' + responseCode;
+        try {
+          const errorResponse = JSON.parse(responseText);
+          if (errorResponse.error) {
+            errorMessage = 'Drive API error: ' + errorResponse.error;
+            if (errorResponse.error_description) {
+              errorMessage += ' - ' + errorResponse.error_description;
+            }
+          }
+        } catch (e) {
+          // If response is HTML (like 401 errors), use the response code
+          if (responseCode === 401) {
+            errorMessage = 'Drive access not authorized. The access token may be invalid, expired, or missing required scopes.';
+          }
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      response = JSON.parse(responseText);
+    } else {
+      // Use built-in Drive service (requires USER_ACCESSING context)
+      response = Drive.Files.list({
+        q: query,
+        spaces: 'drive',
+        fields: 'files(id, name, owners)'
+      });
+    }
+    
+    if (response.files && response.files.length > 0) {
+      const folder = response.files[0];
+      Logger.log('Found existing ChoreQuest folder: ' + folder.id);
+      
+      // Log folder owner and verify it matches expected user
+      if (folder.owners && folder.owners.length > 0) {
+        const folderOwnerEmail = folder.owners[0].emailAddress;
+        Logger.log('Folder owner: ' + folderOwnerEmail);
+        
+        // CRITICAL: Verify folder owner matches expected user
+        if (folderOwnerEmail !== ownerEmail) {
+          Logger.log('ERROR: Folder owner (' + folderOwnerEmail + ') does not match ownerEmail (' + ownerEmail + ')');
+          Logger.log('This confirms the script is accessing the wrong user\'s Drive!');
+          Logger.log('The script is running as the script owner (' + (currentUserEmail || 'unknown') + '), not as the user (' + ownerEmail + ').');
+          Logger.log('This happens because the Android app\'s HTTP requests don\'t have OAuth credentials.');
+          throw new Error('Folder owner mismatch: Folder belongs to ' + folderOwnerEmail + ' but should belong to ' + ownerEmail + '. OAuth authorization required. Please visit: ' + ScriptApp.getService().getUrl());
+        }
+        
+        // Also verify it matches current authenticated user (if we can get it)
+        if (currentUserEmail && folderOwnerEmail !== currentUserEmail) {
+          Logger.log('ERROR: Folder owner (' + folderOwnerEmail + ') does not match authenticated user (' + currentUserEmail + ')');
+          Logger.log('This confirms OAuth is not working correctly!');
+          throw new Error('OAuth mismatch: Folder belongs to ' + folderOwnerEmail + ' but authenticated user is ' + currentUserEmail);
+        }
+      }
+      
+      return folder.id;
+    }
+    
+    // Folder doesn't exist, create it
+    Logger.log('Folder not found, creating new ChoreQuest folder');
+    const folderMetadata = {
+      name: FOLDER_NAME,
+      mimeType: 'application/vnd.google-apps.folder',
+      description: 'ChoreQuest app data storage',
+      parents: ['root'] // Create in root of authenticated user's Drive
+    };
+    
+    let newFolder;
+    if (accessToken) {
+      // Use access token for Drive API call
+      const url = 'https://www.googleapis.com/drive/v3/files';
+      const options = {
+        method: 'post',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify(folderMetadata),
+        muteHttpExceptions: true
+      };
+      const httpResponse = UrlFetchApp.fetch(url, options);
+      const responseCode = httpResponse.getResponseCode();
+      const responseText = httpResponse.getContentText();
+      
+      if (responseCode !== 200) {
+        Logger.log('ERROR: Drive API create failed: ' + responseCode + ' - ' + responseText);
+        throw new Error('Drive API create failed: ' + responseCode + ' - ' + responseText);
+      }
+      
+      newFolder = JSON.parse(responseText);
+    } else {
+      // Use built-in Drive service
+      newFolder = Drive.Files.create(folderMetadata, {
+        fields: 'id, name, owners'
+      });
+    }
+    
+    Logger.log('Created ChoreQuest folder: ' + newFolder.id);
+    if (newFolder.owners && newFolder.owners.length > 0) {
+      const newFolderOwnerEmail = newFolder.owners[0].emailAddress;
+      Logger.log('New folder owner: ' + newFolderOwnerEmail);
+      
+      // CRITICAL: Verify new folder owner matches expected user
+      if (newFolderOwnerEmail !== ownerEmail) {
+        Logger.log('ERROR: New folder owner (' + newFolderOwnerEmail + ') does not match ownerEmail (' + ownerEmail + ')');
+        Logger.log('This confirms the script is creating folders in the wrong user\'s Drive!');
+        Logger.log('The script is running as the script owner (' + (currentUserEmail || 'unknown') + '), not as the user (' + ownerEmail + ').');
+        throw new Error('Folder creation mismatch: Folder created for ' + newFolderOwnerEmail + ' but should be for ' + ownerEmail + '. OAuth authorization required. Please visit: ' + ScriptApp.getService().getUrl());
+      }
+    }
+    
+    return newFolder.id;
+  } catch (error) {
+    Logger.log('ERROR in getChoreQuestFolderV3: ' + error.toString());
+    Logger.log('Error details: ' + JSON.stringify(error));
+    
+    // Check if it's an authorization error
+    const errorStr = error.toString().toLowerCase();
+    if (errorStr.includes('unauthorized') || errorStr.includes('401') || errorStr.includes('permission') || errorStr.includes('access denied') || errorStr.includes('insufficient permission')) {
+      Logger.log('Authorization error detected - user needs to authorize Drive access');
+      throw new Error('Drive access not authorized. Please visit the web app URL in a browser to authorize Drive access: ' + ScriptApp.getService().getUrl());
+    }
+    
+    throw new Error('Cannot access Drive: ' + error.toString());
+  }
+}
+
+/**
+ * Save JSON data to a file using Drive API v3
+ * @param {string} fileName - Name of the file
+ * @param {object} data - Data to save
+ * @param {string} ownerEmail - Owner email to identify family folder (optional if folderId provided)
+ * @param {string} folderId - Optional: Folder ID to access folder directly (for shared folders)
+ * @param {string} accessToken - Optional: OAuth access token for Drive API calls
+ * @returns {string} File ID
+ */
+function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
+  try {
+    let targetFolderId;
+    
+    // If folderId is provided, use it directly (works for shared folders)
+    if (folderId) {
+      Logger.log('Using provided folderId: ' + folderId);
+      targetFolderId = folderId;
+    } else if (ownerEmail) {
+      // Use ownerEmail to get folder
+      Logger.log('Getting folder for owner: ' + ownerEmail);
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+    } else {
+      // Use current user's folder
+      Logger.log('Getting folder for current user');
+      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+    }
+    
+    const jsonString = JSON.stringify(data, null, 2);
+    
+    // Search for existing file
+    const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";
+    Logger.log('Searching for file with query: ' + query);
+    Logger.log('Using access token: ' + (accessToken ? 'yes (REQUIRED for ME deployment)' : 'no (will fail with ME deployment)'));
+    
+    // CRITICAL: With ME deployment, access token is REQUIRED
+    if (!accessToken) {
+      Logger.log('ERROR: Access token is required with ME deployment');
+      throw new Error('Access token required: With ME deployment, an OAuth access token must be provided to access the user\'s Drive.');
+    }
+    
+    let fileListResponse;
+    if (accessToken) {
+      // Use access token for Drive API call
+      const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)';
+      const options = {
+        method: 'get',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken
+        },
+        muteHttpExceptions: true
+      };
+      const httpResponse = UrlFetchApp.fetch(url, options);
+      const responseCode = httpResponse.getResponseCode();
+      const responseText = httpResponse.getContentText();
+      
+      if (responseCode !== 200) {
+        Logger.log('ERROR: Drive API list call failed: ' + responseCode + ' - ' + responseText);
+        if (responseCode === 401) {
+          throw new Error('Drive access not authorized. Access token may be invalid or expired.');
+        }
+        throw new Error('Drive API call failed: ' + responseCode + ' - ' + responseText);
+      }
+      
+      fileListResponse = JSON.parse(responseText);
+    } else {
+      // Use built-in Drive service (requires USER_ACCESSING context)
+      fileListResponse = Drive.Files.list({
+        q: query,
+        fields: 'files(id, name)'
+      });
+    }
+    
+    if (fileListResponse.files && fileListResponse.files.length > 0) {
+      // Update existing file
+      // If multiple files found, delete duplicates and keep only the first one
+      if (fileListResponse.files.length > 1) {
+        Logger.log('WARNING: Multiple files found with name "' + fileName + '". Deleting duplicates...');
+        for (let i = 1; i < fileListResponse.files.length; i++) {
+          const duplicateFileId = fileListResponse.files[i].id;
+          Logger.log('Deleting duplicate file: ' + duplicateFileId);
+          try {
+            if (accessToken) {
+              const deleteUrl = 'https://www.googleapis.com/drive/v3/files/' + duplicateFileId;
+              const deleteOptions = {
+                method: 'delete',
+                headers: {
+                  'Authorization': 'Bearer ' + accessToken
+                },
+                muteHttpExceptions: true
+              };
+              UrlFetchApp.fetch(deleteUrl, deleteOptions);
+            } else {
+              DriveApp.getFileById(duplicateFileId).setTrashed(true);
+            }
+          } catch (e) {
+            Logger.log('Error deleting duplicate file: ' + e.toString());
+          }
+        }
+      }
+      
+      const fileId = fileListResponse.files[0].id;
+      Logger.log('Updating existing file: ' + fileId);
+      Logger.log('File content size: ' + jsonString.length + ' bytes');
+      
+      if (accessToken) {
+        // Use access token to update file content
+        // Use uploadType=media for simpler content-only updates
+        try {
+          const url = 'https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media';
+          
+          const options = {
+            method: 'patch',
+            headers: {
+              'Authorization': 'Bearer ' + accessToken,
+              'Content-Type': 'application/json'
+            },
+            payload: jsonString,
+            muteHttpExceptions: true
+          };
+          
+          const httpResponse = UrlFetchApp.fetch(url, options);
+          const responseCode = httpResponse.getResponseCode();
+          const responseText = httpResponse.getContentText();
+          
+          if (responseCode !== 200) {
+            Logger.log('ERROR: Drive API update failed: ' + responseCode);
+            Logger.log('Response: ' + responseText);
+            throw new Error('Failed to update file: ' + responseCode + ' - ' + responseText);
+          }
+          
+          const updatedFile = JSON.parse(responseText);
+          Logger.log('File updated successfully via API: ' + updatedFile.id);
+          Logger.log('File name: ' + updatedFile.name);
+          return updatedFile.id;
+        } catch (error) {
+          Logger.log('Error updating file with access token: ' + error.toString());
+          Logger.log('Error stack: ' + (error.stack || 'no stack'));
+          throw new Error('Cannot update file: ' + error.toString());
+        }
+      } else {
+        // Use DriveApp (requires USER_ACCESSING context)
+        try {
+          const file = DriveApp.getFileById(fileId);
+          file.setContent(jsonString);
+          Logger.log('File updated successfully: ' + fileId);
+          return fileId;
+        } catch (error) {
+          Logger.log('Error updating file: ' + error.toString());
+          throw new Error('Cannot update file: ' + error.toString());
+        }
+      }
+    } else {
+      // Create new file
+      Logger.log('Creating new file: ' + fileName);
+      
+      if (accessToken) {
+        // Use access token to create file
+        try {
+          const blob = Utilities.newBlob(jsonString, 'application/json', fileName);
+          const url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+          // Generate a random boundary string (Apps Script doesn't have getRandomString)
+          const boundary = '----WebKitFormBoundary' + Utilities.getUuid().replace(/-/g, '').substring(0, 16);
+          const payload = [
+            '--' + boundary,
+            'Content-Disposition: form-data; name="metadata"; filename=""',
+            'Content-Type: application/json',
+            '',
+            JSON.stringify({ name: fileName, parents: [targetFolderId] }),
+            '--' + boundary,
+            'Content-Disposition: form-data; name="file"; filename="' + fileName + '"',
+            'Content-Type: application/json',
+            '',
+            jsonString,
+            '--' + boundary + '--'
+          ].join('\r\n');
+          
+          const options = {
+            method: 'post',
+            headers: {
+              'Authorization': 'Bearer ' + accessToken,
+              'Content-Type': 'multipart/related; boundary=' + boundary
+            },
+            payload: payload,
+            muteHttpExceptions: true
+          };
+          
+          const httpResponse = UrlFetchApp.fetch(url, options);
+          const responseCode = httpResponse.getResponseCode();
+          
+          if (responseCode !== 200) {
+            Logger.log('ERROR: Drive API create failed: ' + responseCode + ' - ' + httpResponse.getContentText());
+            throw new Error('Failed to create file: ' + responseCode);
+          }
+          
+          const createdFile = JSON.parse(httpResponse.getContentText());
+          Logger.log('File created successfully via API: ' + createdFile.id);
+          return createdFile.id;
+        } catch (error) {
+          Logger.log('Error creating file with access token: ' + error.toString());
+          throw new Error('Cannot create file: ' + error.toString());
+        }
+      } else {
+        // Use DriveApp (requires USER_ACCESSING context)
+        try {
+          const folder = DriveApp.getFolderById(targetFolderId);
+          const file = folder.createFile(fileName, jsonString, MimeType.PLAIN_TEXT);
+          Logger.log('File created successfully: ' + file.getId());
+          return file.getId();
+        } catch (error) {
+          Logger.log('Error creating file: ' + error.toString());
+          throw new Error('Cannot create file: ' + error.toString());
+        }
+      }
+    }
+  } catch (error) {
+    Logger.log('ERROR in saveJsonFileV3: ' + error.toString());
+    Logger.log('Error details: ' + JSON.stringify(error));
+    
+    // Check if it's an authorization error
+    const errorStr = error.toString().toLowerCase();
+    if (errorStr.includes('unauthorized') || errorStr.includes('401') || errorStr.includes('permission') || errorStr.includes('access denied') || errorStr.includes('insufficient permission')) {
+      Logger.log('Authorization error - user needs to authorize Drive access');
+      throw new Error('Drive access not authorized. User must visit the web app URL to authorize Drive access.');
+    }
+    
+    throw new Error('Cannot save file: ' + error.toString());
+  }
+}
+
+/**
+ * Load JSON data from a file using Drive API v3
+ * @param {string} fileName - Name of the file
+ * @param {string} ownerEmail - Owner email to identify family folder (optional if folderId provided)
+ * @param {string} folderId - Optional: Folder ID to access folder directly (for shared folders)
+ * @param {string} accessToken - Optional: OAuth access token for Drive API calls
+ * @returns {object|null} Parsed JSON data or null if file doesn't exist
+ */
+function loadJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
+  try {
+    let targetFolderId;
+    
+    // If folderId is provided, use it directly (works for shared folders)
+    if (folderId) {
+      Logger.log('Using provided folderId: ' + folderId);
+      targetFolderId = folderId;
+    } else if (ownerEmail) {
+      // Use ownerEmail to get folder (REQUIRED to verify OAuth)
+      Logger.log('Getting folder for owner: ' + ownerEmail);
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+    } else {
+      // ownerEmail is required to verify OAuth is working
+      Logger.log('ERROR: ownerEmail is required for loadJsonFileV3 when folderId is not provided');
+      throw new Error('ownerEmail is required to verify OAuth is working correctly');
+    }
+    
+    // Search for file
+    const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";
+    Logger.log('Searching for file with query: ' + query);
+    Logger.log('Using access token: ' + (accessToken ? 'yes' : 'no (using built-in Drive service)'));
+    
+    let fileListResponse;
+    if (accessToken) {
+      // Use access token for Drive API call
+      const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)';
+      const options = {
+        method: 'get',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken
+        },
+        muteHttpExceptions: true
+      };
+      const httpResponse = UrlFetchApp.fetch(url, options);
+      const responseCode = httpResponse.getResponseCode();
+      const responseText = httpResponse.getContentText();
+      
+      if (responseCode !== 200) {
+        Logger.log('ERROR: Drive API list call failed: ' + responseCode + ' - ' + responseText);
+        if (responseCode === 401) {
+          throw new Error('Drive access not authorized. Access token may be invalid or expired.');
+        }
+        throw new Error('Drive API call failed: ' + responseCode + ' - ' + responseText);
+      }
+      
+      fileListResponse = JSON.parse(responseText);
+    } else {
+      // Use built-in Drive service (requires USER_ACCESSING context)
+      fileListResponse = Drive.Files.list({
+        q: query,
+        fields: 'files(id, name)'
+      });
+    }
+    
+    if (fileListResponse.files && fileListResponse.files.length > 0) {
+      const fileId = fileListResponse.files[0].id;
+      Logger.log('Found file: ' + fileId);
+      
+      // Get file content
+      if (accessToken) {
+        // Use access token to download file
+        try {
+          const downloadUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media';
+          const options = {
+            method: 'get',
+            headers: {
+              'Authorization': 'Bearer ' + accessToken
+            },
+            muteHttpExceptions: true
+          };
+          const httpResponse = UrlFetchApp.fetch(downloadUrl, options);
+          const responseCode = httpResponse.getResponseCode();
+          
+          if (responseCode !== 200) {
+            Logger.log('ERROR: Drive API download failed: ' + responseCode);
+            throw new Error('Failed to download file: ' + responseCode);
+          }
+          
+          const content = httpResponse.getContentText();
+          return JSON.parse(content);
+        } catch (error) {
+          Logger.log('Error downloading file with access token: ' + error.toString());
+          throw new Error('Cannot read file content: ' + error.toString());
+        }
+      } else {
+        // Use DriveApp (requires USER_ACCESSING context)
+        try {
+          const file = DriveApp.getFileById(fileId);
+          const content = file.getBlob().getDataAsString();
+          return JSON.parse(content);
+        } catch (error) {
+          Logger.log('Error getting file content: ' + error.toString());
+          throw new Error('Cannot read file content: ' + error.toString());
+        }
+      }
+    }
+    
+    Logger.log('File not found: ' + fileName);
+    return null;
+  } catch (error) {
+    Logger.log('ERROR in loadJsonFileV3: ' + error.toString());
+    Logger.log('Error details: ' + JSON.stringify(error));
+    
+    // Check if it's an authorization error
+    const errorStr = error.toString().toLowerCase();
+    if (errorStr.includes('unauthorized') || errorStr.includes('401') || errorStr.includes('permission') || errorStr.includes('access denied') || errorStr.includes('insufficient permission')) {
+      Logger.log('Authorization error - user needs to authorize Drive access');
+      throw new Error('Drive access not authorized. User must visit the web app URL to authorize Drive access.');
+    }
+    
+    // If file doesn't exist, return null instead of throwing
+    if (errorStr.includes('not found') || errorStr.includes('404')) {
+      Logger.log('File not found - returning null');
+      return null;
+    }
+    
+    // For other errors, return null to let caller handle missing data
+    Logger.log('Error loading file - returning null');
+    return null;
+  }
+}
+
+/**
+ * Get file metadata using Drive API v3
+ * @param {string} fileName - Name of the file
+ * @param {string} ownerEmail - Owner email to identify family folder (optional if folderId provided)
+ * @param {string} folderId - Optional: Folder ID to access folder directly (for shared folders)
+ * @returns {object|null} File metadata or null if file doesn't exist
+ */
+function getFileMetadataV3(fileName, ownerEmail, folderId, accessToken) {
+  try {
+    let targetFolderId;
+    
+    if (folderId) {
+      targetFolderId = folderId;
+    } else if (ownerEmail) {
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+    } else {
+      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+    }
+    
+    const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";
+    const response = Drive.Files.list({
+      q: query,
+      fields: 'files(id, name, modifiedTime, size)'
+    });
+    
+    if (response.files && response.files.length > 0) {
+      const file = response.files[0];
+      return {
+        id: file.id,
+        name: file.name,
+        modifiedTime: file.modifiedTime,
+        size: file.size || 0
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    Logger.log('ERROR in getFileMetadataV3: ' + error.toString());
+    return null;
+  }
+}
+
+/**
+ * Get all file metadata in the folder using Drive API v3
+ * @param {string} ownerEmail - Owner email to identify family folder (optional if folderId provided)
+ * @param {string} folderId - Optional: Folder ID to access folder directly (for shared folders)
+ * @returns {Array} Array of file metadata objects
+ */
+function getAllFileMetadataV3(ownerEmail, folderId, accessToken) {
+  try {
+    let targetFolderId;
+    
+    if (folderId) {
+      targetFolderId = folderId;
+    } else if (ownerEmail) {
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+    } else {
+      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+    }
+    
+    const query = "'" + targetFolderId + "' in parents and trashed=false";
+    const response = Drive.Files.list({
+      q: query,
+      fields: 'files(id, name, modifiedTime, size, mimeType)'
+    });
+    
+    if (response.files) {
+      return response.files.map(file => ({
+        id: file.id,
+        name: file.name,
+        modifiedTime: file.modifiedTime,
+        size: file.size || 0,
+        mimeType: file.mimeType
+      }));
+    }
+    
+    return [];
+  } catch (error) {
+    Logger.log('ERROR in getAllFileMetadataV3: ' + error.toString());
+    return [];
+  }
+}
+
+/**
+ * Delete a JSON file using Drive API v3
+ * @param {string} fileName - Name of the file
+ * @param {string} ownerEmail - Owner email to identify family folder (optional if folderId provided)
+ * @param {string} folderId - Optional: Folder ID to access folder directly (for shared folders)
+ * @returns {boolean} True if file was deleted, false otherwise
+ */
+function deleteJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
+  try {
+    let targetFolderId;
+    
+    if (folderId) {
+      targetFolderId = folderId;
+    } else if (ownerEmail) {
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+    } else {
+      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+    }
+    
+    const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";
+    const response = Drive.Files.list({
+      q: query,
+      fields: 'files(id)'
+    });
+    
+    if (response.files && response.files.length > 0) {
+      const fileId = response.files[0].id;
+      Drive.Files.remove(fileId);
+      Logger.log('File deleted: ' + fileId);
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    Logger.log('ERROR in deleteJsonFileV3: ' + error.toString());
+    return false;
+  }
+}

@@ -56,4 +56,61 @@ class ProfileViewModel @Inject constructor(
     fun refresh() {
         loadCurrentUser()
     }
+
+    private val _updateProfileState = MutableStateFlow<UpdateProfileState>(UpdateProfileState.Idle)
+    val updateProfileState: StateFlow<UpdateProfileState> = _updateProfileState.asStateFlow()
+
+    /**
+     * Update user profile
+     */
+    fun updateProfile(
+        name: String? = null,
+        avatarUrl: String? = null,
+        settings: com.chorequest.domain.models.UserSettings? = null
+    ) {
+        viewModelScope.launch {
+            val currentUser = _userState.value
+            if (currentUser != null) {
+                _updateProfileState.value = UpdateProfileState.Loading
+                userRepository.updateUser(
+                    userId = currentUser.id,
+                    name = name,
+                    avatarUrl = avatarUrl,
+                    settings = settings
+                ).collect { result ->
+                    when (result) {
+                        is com.chorequest.utils.Result.Success -> {
+                            _userState.value = result.data
+                            _updateProfileState.value = UpdateProfileState.Success
+                        }
+                        is com.chorequest.utils.Result.Error -> {
+                            _updateProfileState.value = UpdateProfileState.Error(result.message)
+                        }
+                        is com.chorequest.utils.Result.Loading -> {
+                            _updateProfileState.value = UpdateProfileState.Loading
+                        }
+                    }
+                }
+            } else {
+                _updateProfileState.value = UpdateProfileState.Error("User not found")
+            }
+        }
+    }
+
+    /**
+     * Reset update profile state
+     */
+    fun resetUpdateProfileState() {
+        _updateProfileState.value = UpdateProfileState.Idle
+    }
+}
+
+/**
+ * UI state for update profile operation
+ */
+sealed class UpdateProfileState {
+    object Idle : UpdateProfileState()
+    object Loading : UpdateProfileState()
+    object Success : UpdateProfileState()
+    data class Error(val message: String) : UpdateProfileState()
 }

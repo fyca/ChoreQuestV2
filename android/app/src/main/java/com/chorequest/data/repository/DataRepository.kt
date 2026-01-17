@@ -43,15 +43,34 @@ class DataRepository @Inject constructor(
                 return@flow
             }
 
+            Log.d(TAG, "Starting delete all data operation for family: ${session.familyId}")
+            
             // Call backend to delete all data
-            val response = api.deleteAllData(
-                request = com.chorequest.data.remote.DeleteAllDataRequest(
-                    userId = session.userId,
-                    familyId = session.familyId
-                )
-            )
+            // Use withContext to ensure the operation completes even if the flow is cancelled
+            val response = withContext(Dispatchers.IO) {
+                try {
+                    api.deleteAllData(
+                        request = com.chorequest.data.remote.DeleteAllDataRequest(
+                            userId = session.userId,
+                            familyId = session.familyId
+                        )
+                    )
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    Log.e(TAG, "Delete operation was cancelled", e)
+                    throw e // Re-throw cancellation to allow proper handling
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error calling delete API", e)
+                    null
+                }
+            }
+
+            if (response == null) {
+                emit(Result.Error("Failed to connect to server. Please try again."))
+                return@flow
+            }
 
             if (response.isSuccessful && response.body()?.success == true) {
+                Log.i(TAG, "Backend deletion successful, clearing local database")
                 // Clear local database
                 // Backend preserves the primary parent, so we clear everything locally
                 // User will need to sync or re-login to restore their account
@@ -62,7 +81,6 @@ class DataRepository @Inject constructor(
                     transactionDao.deleteAllTransactions()
                     userDao.deleteAllUsers()
                 }
-                
                 Log.i(TAG, "All data deleted successfully")
                 emit(Result.Success(Unit))
             } else {
@@ -70,6 +88,9 @@ class DataRepository @Inject constructor(
                 Log.e(TAG, "Failed to delete all data: $errorMsg")
                 emit(Result.Error(errorMsg))
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            Log.e(TAG, "Delete all data operation was cancelled", e)
+            emit(Result.Error("Operation was cancelled. Please try again."))
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting all data", e)
             emit(Result.Error("Error deleting all data: ${e.message}"))

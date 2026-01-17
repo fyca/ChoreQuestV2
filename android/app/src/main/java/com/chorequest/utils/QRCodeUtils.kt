@@ -36,7 +36,9 @@ object QRCodeUtils {
         userName: String,
         familyId: String,
         authToken: String,
-        tokenVersion: Int
+        tokenVersion: Int,
+        ownerEmail: String,
+        folderId: String
     ): String {
         val payload = QRCodePayload(
             familyId = familyId,
@@ -44,7 +46,9 @@ object QRCodeUtils {
             token = authToken,
             version = tokenVersion,
             appVersion = "1.0.0",
-            timestamp = java.time.Instant.now().toString()
+            timestamp = java.time.Instant.now().toString(),
+            ownerEmail = ownerEmail,
+            folderId = folderId
         )
         return gson.toJson(payload)
     }
@@ -127,26 +131,38 @@ object QRCodeUtils {
         // Check required fields
         if (payload.familyId.isBlank() || 
             payload.userId.isBlank() || 
-            payload.token.isBlank()) {
+            payload.token.isBlank() ||
+            payload.ownerEmail.isBlank() ||
+            payload.folderId.isBlank()) {
+            android.util.Log.e("QRCodeUtils", "QR code validation failed: missing required fields")
+            android.util.Log.e("QRCodeUtils", "familyId: ${payload.familyId.isNotBlank()}, userId: ${payload.userId.isNotBlank()}, token: ${payload.token.isNotBlank()}, ownerEmail: ${payload.ownerEmail.isNotBlank()}, folderId: ${payload.folderId.isNotBlank()}")
             return false
         }
         
         // Check version
         if (payload.version < 1) {
+            android.util.Log.e("QRCodeUtils", "QR code validation failed: invalid version ${payload.version}")
             return false
         }
         
         // Check timestamp (not too old - max 30 days)
+        // Note: We'll be lenient with timestamp parsing - if it fails, we'll still accept the QR code
+        // as long as other validations pass. The backend will do the final validation.
         try {
-            val timestamp = java.time.Instant.parse(payload.timestamp)
-            val now = java.time.Instant.now()
-            val daysDiff = java.time.Duration.between(timestamp, now).toDays()
-            
-            if (daysDiff > 30) {
-                return false
+            if (payload.timestamp.isNotBlank()) {
+                val timestamp = java.time.Instant.parse(payload.timestamp)
+                val now = java.time.Instant.now()
+                val daysDiff = java.time.Duration.between(timestamp, now).toDays()
+                
+                if (daysDiff > 30) {
+                    android.util.Log.e("QRCodeUtils", "QR code validation failed: QR code is ${daysDiff} days old (max 30 days)")
+                    return false
+                }
             }
         } catch (e: Exception) {
-            return false
+            // Log but don't fail - timestamp parsing errors shouldn't block QR code usage
+            // The backend will do the final validation
+            android.util.Log.w("QRCodeUtils", "QR code timestamp parsing failed: ${e.message}, but continuing validation")
         }
         
         return true

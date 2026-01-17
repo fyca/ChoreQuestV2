@@ -58,11 +58,21 @@ class QRScannerViewModel @Inject constructor(
      */
     private fun authenticateWithQRCode(payload: QRCodePayload) {
         viewModelScope.launch {
+            // ownerEmail and folderId are now included in QR code payload
+            val ownerEmail = payload.ownerEmail
+            val folderId = payload.folderId
+            if (ownerEmail.isBlank() || folderId.isBlank()) {
+                _scannerState.value = QRScannerState.Error("QR code missing required data")
+                return@launch
+            }
+            
             authRepository.authenticateWithQR(
                 familyId = payload.familyId,
                 userId = payload.userId,
                 token = payload.token,
-                tokenVersion = payload.version
+                tokenVersion = payload.version,
+                ownerEmail = ownerEmail,
+                folderId = folderId
             ).collect { result ->
                 when (result) {
                     is Result.Success -> {

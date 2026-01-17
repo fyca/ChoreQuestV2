@@ -8,6 +8,7 @@ import com.chorequest.data.local.entities.toEntity
 import com.chorequest.data.local.entities.toDomain
 import com.chorequest.data.remote.*
 import com.chorequest.domain.models.Reward
+import com.chorequest.domain.models.RewardRedemption
 import com.chorequest.utils.Result
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +46,7 @@ class RewardRepository @Inject constructor(
 
     /**
      * Create a new reward
+     * Drive is the source of truth - save to Drive FIRST, then cache locally
      */
     fun createReward(reward: Reward): Flow<Result<Reward>> = flow {
         emit(Result.Loading)
@@ -55,10 +57,7 @@ class RewardRepository @Inject constructor(
                 return@flow
             }
 
-            // Save locally first
-            rewardDao.insertReward(reward.toEntity())
-
-            // Sync with Drive-backed Apps Script
+            // Save to Drive FIRST (Drive is source of truth)
             val response = api.createReward(
                 request = CreateRewardRequest(
                     creatorId = session.userId,
@@ -74,26 +73,28 @@ class RewardRepository @Inject constructor(
             if (response.isSuccessful && response.body()?.success == true) {
                 val created = response.body()?.reward
                 if (created != null) {
-                    // Replace local with server version (server is source of truth)
-                    rewardDao.deleteReward(reward.toEntity())
+                    // Only save to local cache AFTER successful Drive save
                     rewardDao.insertReward(created.toEntity())
+                    Log.d("RewardRepository", "Reward created successfully on Drive: ${created.id}")
                     emit(Result.Success(created))
                 } else {
-                    emit(Result.Success(reward))
+                    Log.w("RewardRepository", "Drive created reward but returned null reward")
+                    emit(Result.Error("Reward created but response was invalid"))
                 }
             } else {
-                Log.w("RewardRepository", "Server sync failed for reward creation: ${response.body()?.error ?: response.message()}")
-                emit(Result.Success(reward)) // keep local optimistic result
+                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to create reward on Drive"
+                Log.e("RewardRepository", "Failed to create reward on Drive: $errorMsg")
+                emit(Result.Error("Failed to save reward to Drive: $errorMsg"))
             }
         } catch (e: Exception) {
             Log.e("RewardRepository", "Create reward failed: ${e.message}")
-            // If we saved locally but sync failed, still success
-            emit(Result.Success(reward))
+            emit(Result.Error(e.message ?: "Failed to create reward"))
         }
     }
 
     /**
      * Update an existing reward
+     * Drive is the source of truth - save to Drive FIRST, then cache locally
      */
     fun updateReward(reward: Reward): Flow<Result<Reward>> = flow {
         emit(Result.Loading)
@@ -104,9 +105,7 @@ class RewardRepository @Inject constructor(
                 return@flow
             }
 
-            // Update locally first
-            rewardDao.updateReward(reward.toEntity())
-
+            // Save to Drive FIRST (Drive is source of truth)
             val response = api.updateReward(
                 request = UpdateRewardRequest(
                     userId = session.userId,
@@ -125,23 +124,28 @@ class RewardRepository @Inject constructor(
             if (response.isSuccessful && response.body()?.success == true) {
                 val updated = response.body()?.reward
                 if (updated != null) {
+                    // Only update local cache AFTER successful Drive save
                     rewardDao.updateReward(updated.toEntity())
+                    Log.d("RewardRepository", "Reward updated successfully on Drive: ${updated.id}")
                     emit(Result.Success(updated))
                 } else {
-                    emit(Result.Success(reward))
+                    Log.w("RewardRepository", "Drive updated reward but returned null reward")
+                    emit(Result.Error("Reward updated but response was invalid"))
                 }
             } else {
-                Log.w("RewardRepository", "Server sync failed for reward update: ${response.body()?.error ?: response.message()}")
-                emit(Result.Success(reward))
+                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to update reward on Drive"
+                Log.e("RewardRepository", "Failed to update reward on Drive: $errorMsg")
+                emit(Result.Error("Failed to save reward update to Drive: $errorMsg"))
             }
         } catch (e: Exception) {
             Log.e("RewardRepository", "Update reward failed: ${e.message}")
-            emit(Result.Success(reward))
+            emit(Result.Error(e.message ?: "Failed to update reward"))
         }
     }
 
     /**
      * Delete a reward
+     * Drive is the source of truth - delete from Drive FIRST, then remove from local cache
      */
     fun deleteReward(reward: Reward): Flow<Result<Unit>> = flow {
         emit(Result.Loading)
@@ -152,22 +156,26 @@ class RewardRepository @Inject constructor(
                 return@flow
             }
 
-            // Delete locally first
-            rewardDao.deleteReward(reward.toEntity())
-
+            // Delete from Drive FIRST (Drive is source of truth)
             val response = api.deleteReward(
                 request = DeleteRewardRequest(
                     userId = session.userId,
                     rewardId = reward.id
                 )
             )
-            if (!response.isSuccessful || response.body()?.success != true) {
-                Log.w("RewardRepository", "Server sync failed for reward deletion: ${response.body()?.error ?: response.message()}")
+            if (response.isSuccessful && response.body()?.success == true) {
+                // Only remove from local cache AFTER successful Drive deletion
+                rewardDao.deleteReward(reward.toEntity())
+                Log.d("RewardRepository", "Reward deleted successfully on Drive: ${reward.id}")
+                emit(Result.Success(Unit))
+            } else {
+                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to delete reward on Drive"
+                Log.e("RewardRepository", "Failed to delete reward on Drive: $errorMsg")
+                emit(Result.Error("Failed to delete reward from Drive: $errorMsg"))
             }
-            emit(Result.Success(Unit))
         } catch (e: Exception) {
             Log.e("RewardRepository", "Delete reward failed: ${e.message}")
-            emit(Result.Success(Unit))
+            emit(Result.Error(e.message ?: "Failed to delete reward"))
         }
     }
 
@@ -199,6 +207,73 @@ class RewardRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e("RewardRepository", "Redeem reward failed: ${e.message}")
             emit(Result.Error("Failed to redeem reward: ${e.message}"))
+        }
+    }
+
+    /**
+     * Get reward redemptions for the current user, or all pending redemptions for the family
+     */
+    suspend fun getRewardRedemptions(userId: String? = null, familyId: String? = null): Result<List<RewardRedemption>> {
+        return try {
+            val response = api.getRewardRedemptions(userId = userId, familyId = familyId)
+            if (response.isSuccessful && response.body()?.success == true) {
+                val redemptions = response.body()?.redemptions ?: emptyList()
+                Result.Success(redemptions)
+            } else {
+                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to fetch redemptions"
+                Result.Error(errorMsg)
+            }
+        } catch (e: Exception) {
+            Log.e("RewardRepository", "Get redemptions failed: ${e.message}")
+            Result.Error("Failed to fetch redemptions: ${e.message}")
+        }
+    }
+    
+    /**
+     * Approve a reward redemption
+     */
+    fun approveRewardRedemption(parentId: String, redemptionId: String): Flow<Result<String>> = flow {
+        emit(Result.Loading)
+        try {
+            val response = api.approveRewardRedemption(
+                request = ApproveRewardRedemptionRequest(
+                    parentId = parentId,
+                    redemptionId = redemptionId
+                )
+            )
+            if (response.isSuccessful && response.body()?.success == true) {
+                emit(Result.Success(response.body()?.message ?: "Reward approved successfully!"))
+            } else {
+                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to approve reward"
+                emit(Result.Error(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e("RewardRepository", "Approve redemption failed: ${e.message}")
+            emit(Result.Error("Failed to approve reward: ${e.message}"))
+        }
+    }
+    
+    /**
+     * Deny a reward redemption
+     */
+    fun denyRewardRedemption(parentId: String, redemptionId: String): Flow<Result<String>> = flow {
+        emit(Result.Loading)
+        try {
+            val response = api.denyRewardRedemption(
+                request = DenyRewardRedemptionRequest(
+                    parentId = parentId,
+                    redemptionId = redemptionId
+                )
+            )
+            if (response.isSuccessful && response.body()?.success == true) {
+                emit(Result.Success(response.body()?.message ?: "Reward denied."))
+            } else {
+                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to deny reward"
+                emit(Result.Error(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e("RewardRepository", "Deny redemption failed: ${e.message}")
+            emit(Result.Error("Failed to deny reward: ${e.message}"))
         }
     }
 

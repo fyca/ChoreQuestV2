@@ -66,18 +66,25 @@ class SettingsViewModel @Inject constructor(
     fun deleteAllData() {
         viewModelScope.launch {
             _deleteAllDataState.value = DeleteAllDataState.Loading
-            dataRepository.deleteAllData().collect { result ->
-                when (result) {
-                    is Result.Success -> {
-                        _deleteAllDataState.value = DeleteAllDataState.Success
-                    }
-                    is Result.Error -> {
-                        _deleteAllDataState.value = DeleteAllDataState.Error(result.message)
-                    }
-                    is Result.Loading -> {
-                        // Already set to loading
+            try {
+                dataRepository.deleteAllData().collect { result ->
+                    when (result) {
+                        is Result.Success -> {
+                            _deleteAllDataState.value = DeleteAllDataState.Success
+                        }
+                        is Result.Error -> {
+                            _deleteAllDataState.value = DeleteAllDataState.Error(result.message)
+                        }
+                        is Result.Loading -> {
+                            // Already set to loading
+                        }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Operation was cancelled - set error state
+                _deleteAllDataState.value = DeleteAllDataState.Error("Operation was cancelled. Please try again.")
+            } catch (e: Exception) {
+                _deleteAllDataState.value = DeleteAllDataState.Error("Error: ${e.message}")
             }
         }
     }

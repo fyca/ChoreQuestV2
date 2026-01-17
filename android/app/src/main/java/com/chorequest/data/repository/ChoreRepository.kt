@@ -51,6 +51,7 @@ class ChoreRepository @Inject constructor(
 
     /**
      * Create new chore
+     * Drive is the source of truth - save to Drive FIRST, then cache locally
      */
     fun createChore(chore: Chore): Flow<Result<Chore>> = flow {
         emit(Result.Loading)
@@ -61,10 +62,7 @@ class ChoreRepository @Inject constructor(
                 return@flow
             }
 
-            // Save to local database first (optimistic update)
-            choreDao.insertChore(chore.toEntity())
-
-            // Sync with backend
+            // Save to Drive FIRST (Drive is source of truth)
             val request = CreateChoreRequest(
                 creatorId = session.userId,
                 title = chore.title,
@@ -80,23 +78,47 @@ class ChoreRepository @Inject constructor(
 
             val response = api.createChore(request = request)
             
+            // Check for authorization error (401 status code)
+            if (!response.isSuccessful && response.code() == 401) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+                Log.e(TAG, "Authorization required: $errorMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+                return@flow
+            }
+            
             if (response.isSuccessful && response.body()?.success == true) {
                 val createdChore = response.body()?.chore
                 if (createdChore != null) {
-                    // Update local database with server response (may have different ID)
-                    choreDao.deleteChore(chore.toEntity())
+                    // Only save to local cache AFTER successful Drive save
                     choreDao.insertChore(createdChore.toEntity())
-                    Log.d(TAG, "Chore created successfully on backend: ${createdChore.id}")
+                    Log.d(TAG, "Chore created successfully on Drive: ${createdChore.id}")
                     emit(Result.Success(createdChore))
                 } else {
-                    Log.w(TAG, "Backend created chore but returned null chore")
-                    emit(Result.Success(chore))
+                    Log.w(TAG, "Drive created chore but returned null chore")
+                    emit(Result.Error("Chore created but response was invalid"))
                 }
             } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to create chore on backend"
-                Log.e(TAG, "Failed to create chore on backend: $errorMsg")
-                // Keep local data even if backend sync fails
-                emit(Result.Success(chore))
+                val errorBody = response.body()
+                val errorMsg = errorBody?.error 
+                    ?: errorBody?.message 
+                    ?: response.message() 
+                    ?: "Failed to create chore on Drive"
+                
+                Log.d(TAG, "Error response: code=${response.code()}, errorMsg=$errorMsg")
+                
+                // Check if error message indicates authorization is needed
+                // Also check response code again in case it's 401 but we got here
+                if (response.code() == 401 || com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+                } else {
+                    Log.e(TAG, "Failed to create chore on Drive: $errorMsg")
+                    emit(Result.Error("Failed to save chore to Drive: $errorMsg"))
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error creating chore", e)
@@ -106,6 +128,7 @@ class ChoreRepository @Inject constructor(
 
     /**
      * Update existing chore
+     * Drive is the source of truth - save to Drive FIRST, then cache locally
      */
     fun updateChore(chore: Chore): Flow<Result<Chore>> = flow {
         emit(Result.Loading)
@@ -116,10 +139,7 @@ class ChoreRepository @Inject constructor(
                 return@flow
             }
 
-            // Update local database first (optimistic update)
-            choreDao.updateChore(chore.toEntity())
-
-            // Sync with backend
+            // Save to Drive FIRST (Drive is source of truth)
             val updates = ChoreUpdates(
                 title = chore.title,
                 description = chore.description,
@@ -140,22 +160,44 @@ class ChoreRepository @Inject constructor(
 
             val response = api.updateChore(request = request)
             
+            // Check for authorization error (401 status code)
+            if (!response.isSuccessful && response.code() == 401) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+                Log.e(TAG, "Authorization required: $errorMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+                return@flow
+            }
+            
             if (response.isSuccessful && response.body()?.success == true) {
                 val updatedChore = response.body()?.chore
                 if (updatedChore != null) {
-                    // Update local database with server response
+                    // Only update local cache AFTER successful Drive save
                     choreDao.updateChore(updatedChore.toEntity())
-                    Log.d(TAG, "Chore updated successfully on backend: ${updatedChore.id}")
+                    Log.d(TAG, "Chore updated successfully on Drive: ${updatedChore.id}")
                     emit(Result.Success(updatedChore))
                 } else {
-                    Log.w(TAG, "Backend updated chore but returned null chore")
-                    emit(Result.Success(chore))
+                    Log.w(TAG, "Drive updated chore but returned null chore")
+                    emit(Result.Error("Chore updated but response was invalid"))
                 }
             } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to update chore on backend"
-                Log.e(TAG, "Failed to update chore on backend: $errorMsg")
-                // Keep local data even if backend sync fails
-                emit(Result.Success(chore))
+                val errorBody = response.body()
+                val errorMsg = errorBody?.error 
+                    ?: errorBody?.message 
+                    ?: response.message() 
+                    ?: "Failed to update chore on Drive"
+                
+                // Check if error message indicates authorization is needed
+                if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+                } else {
+                    Log.e(TAG, "Failed to update chore on Drive: $errorMsg")
+                    emit(Result.Error("Failed to save chore update to Drive: $errorMsg"))
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error updating chore", e)
@@ -165,6 +207,7 @@ class ChoreRepository @Inject constructor(
 
     /**
      * Delete chore
+     * Drive is the source of truth - delete from Drive FIRST, then remove from local cache
      */
     fun deleteChore(chore: Chore): Flow<Result<Unit>> = flow {
         emit(Result.Loading)
@@ -175,10 +218,7 @@ class ChoreRepository @Inject constructor(
                 return@flow
             }
 
-            // Delete from local database first (optimistic update)
-            choreDao.deleteChore(chore.toEntity())
-
-            // Sync with backend
+            // Delete from Drive FIRST (Drive is source of truth)
             val request = DeleteChoreRequest(
                 userId = session.userId,
                 choreId = chore.id
@@ -186,14 +226,38 @@ class ChoreRepository @Inject constructor(
 
             val response = api.deleteChore(request = request)
             
+            // Check for authorization error (401 status code)
+            if (!response.isSuccessful && response.code() == 401) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+                Log.e(TAG, "Authorization required: $errorMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+                return@flow
+            }
+            
             if (response.isSuccessful && response.body()?.success == true) {
-                Log.d(TAG, "Chore deleted successfully on backend: ${chore.id}")
+                // Only remove from local cache AFTER successful Drive deletion
+                choreDao.deleteChore(chore.toEntity())
+                Log.d(TAG, "Chore deleted successfully on Drive: ${chore.id}")
                 emit(Result.Success(Unit))
             } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to delete chore on backend"
-                Log.e(TAG, "Failed to delete chore on backend: $errorMsg")
-                // Chore already deleted locally, emit success anyway
-                emit(Result.Success(Unit))
+                val errorBody = response.body()
+                val errorMsg = errorBody?.error 
+                    ?: errorBody?.message 
+                    ?: response.message() 
+                    ?: "Failed to delete chore on Drive"
+                
+                // Check if error message indicates authorization is needed
+                if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+                } else {
+                    Log.e(TAG, "Failed to delete chore on Drive: $errorMsg")
+                    emit(Result.Error("Failed to delete chore from Drive: $errorMsg"))
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting chore", e)
@@ -203,26 +267,12 @@ class ChoreRepository @Inject constructor(
 
     /**
      * Complete chore
+     * Drive is the source of truth - save to Drive FIRST, then cache locally
      */
     fun completeChore(choreId: String, userId: String, photoProof: String? = null): Flow<Result<Chore>> = flow {
         emit(Result.Loading)
         try {
-            val chore = choreDao.getChoreById(choreId)?.toDomain()
-            if (chore == null) {
-                emit(Result.Error("Chore not found"))
-                return@flow
-            }
-
-            // Update local database first (optimistic update)
-            val updatedChore = chore.copy(
-                status = com.chorequest.domain.models.ChoreStatus.COMPLETED,
-                completedBy = userId,
-                completedAt = java.time.Instant.now().toString(),
-                photoProof = photoProof
-            )
-            choreDao.updateChore(updatedChore.toEntity())
-
-            // Sync with backend
+            // Save to Drive FIRST (Drive is source of truth)
             val request = CompleteChoreRequest(
                 userId = userId,
                 choreId = choreId,
@@ -231,23 +281,48 @@ class ChoreRepository @Inject constructor(
 
             val response = api.completeChore(request = request)
             
+            // Check for authorization error (401 status code)
+            if (!response.isSuccessful && response.code() == 401) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+                Log.e(TAG, "Authorization required: $errorMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+                return@flow
+            }
+            
             if (response.isSuccessful && response.body()?.success == true) {
                 val completedChore = response.body()?.chore
                 if (completedChore != null) {
-                    // Update local database with server response
+                    // Only update local cache AFTER successful Drive save
                     choreDao.updateChore(completedChore.toEntity())
-                    Log.d(TAG, "Chore completed successfully on backend: $choreId")
+                    Log.d(TAG, "Chore completed successfully on Drive: $choreId")
                     emit(Result.Success(completedChore))
                 } else {
-                    Log.w(TAG, "Backend completed chore but returned null chore")
-                    emit(Result.Success(updatedChore))
+                    Log.w(TAG, "Drive completed chore but returned null chore")
+                    emit(Result.Error("Chore completed but response was invalid"))
                 }
             } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to complete chore on backend"
-                Log.e(TAG, "Failed to complete chore on backend: $errorMsg")
-                // Keep local data even if backend sync fails
-                emit(Result.Success(updatedChore))
+                val errorBody = response.body()
+                val errorMsg = errorBody?.error 
+                    ?: errorBody?.message 
+                    ?: response.message() 
+                    ?: "Failed to complete chore on Drive"
+                
+                // Check if error message indicates authorization is needed
+                if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+                } else {
+                    Log.e(TAG, "Failed to complete chore on Drive: $errorMsg")
+                    emit(Result.Error("Failed to save chore completion to Drive: $errorMsg"))
+                }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Re-throw cancellation exceptions - they should propagate up
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error completing chore", e)
             emit(Result.Error(e.message ?: "Failed to complete chore"))

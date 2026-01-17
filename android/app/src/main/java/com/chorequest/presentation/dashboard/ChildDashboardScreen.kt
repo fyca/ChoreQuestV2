@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.chorequest.presentation.components.*
+import com.chorequest.domain.models.RewardRedemption
+import com.chorequest.domain.models.Reward
+import com.chorequest.domain.models.RewardRedemptionStatus
 
 /**
  * Child dashboard screen with colorful, playful design
@@ -188,7 +191,7 @@ private fun ChildDashboardContent(
             )
         }
 
-        // Chores list
+        // My chores list
         if (state.myChores.isEmpty()) {
             item {
                 EmptyState(
@@ -204,6 +207,80 @@ private fun ChildDashboardContent(
                 ChildChoreCard(
                     chore = chore,
                     onClick = { onChoreClick(chore.id) }
+                )
+            }
+        }
+
+        // Earn Extra Points section (unassigned chores)
+        if (state.extraPointsChores.isNotEmpty()) {
+            item {
+                Text(
+                    text = "⭐ Earn Extra Points",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "Complete these chores to earn bonus points! 💰",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(12.dp),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+            }
+
+            items(state.extraPointsChores) { chore ->
+                ChildChoreCard(
+                    chore = chore,
+                    onClick = { onChoreClick(chore.id) }
+                )
+            }
+        }
+
+        // Pending Rewards section
+        if (state.pendingRewards.isNotEmpty()) {
+            item {
+                Text(
+                    text = "🎁 Pending Rewards",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "Waiting for parent approval... ⏳",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(12.dp),
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+
+            items(state.pendingRewards) { (redemption, reward) ->
+                PendingRewardCard(
+                    redemption = redemption,
+                    reward = reward
                 )
             }
         }
@@ -411,6 +488,107 @@ private fun ChildActionButton(
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun PendingRewardCard(
+    redemption: RewardRedemption,
+    reward: Reward
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Reward icon
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondary),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = reward.imageUrl ?: "🎁",
+                    fontSize = 32.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = reward.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                
+                if (reward.description.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = reward.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
+                        maxLines = 2
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Status indicator
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Waiting for approval",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Points badge
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Stars,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${redemption.pointCost}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
         }
     }
 }

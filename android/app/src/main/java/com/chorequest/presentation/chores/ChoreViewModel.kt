@@ -120,7 +120,21 @@ class ChoreViewModel @Inject constructor(
                         loadAllChores()
                     }
                     is Result.Error -> {
-                        _createEditState.value = CreateEditState.Error(result.message)
+                        android.util.Log.d("ChoreViewModel", "Error received: ${result.message}")
+                        // Check if this is an authorization error
+                        val isAuthError = com.chorequest.utils.AuthorizationHelper.isAuthorizationError(result.message)
+                        android.util.Log.d("ChoreViewModel", "Is authorization error: $isAuthError")
+                        
+                        if (isAuthError) {
+                            val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(result.message)
+                                ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                            val errorMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(result.message)
+                            android.util.Log.d("ChoreViewModel", "Setting AuthorizationRequired state: url=$authUrl, message=$errorMsg")
+                            _createEditState.value = CreateEditState.AuthorizationRequired(authUrl, errorMsg)
+                        } else {
+                            android.util.Log.d("ChoreViewModel", "Setting Error state: ${result.message}")
+                            _createEditState.value = CreateEditState.Error(result.message)
+                        }
                     }
                     is Result.Loading -> {
                         _createEditState.value = CreateEditState.Loading
@@ -325,6 +339,7 @@ sealed class CreateEditState {
     object Loading : CreateEditState()
     data class Success(val message: String) : CreateEditState()
     data class Error(val message: String) : CreateEditState()
+    data class AuthorizationRequired(val url: String, val message: String) : CreateEditState()
 }
 
 /**

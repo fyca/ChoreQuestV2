@@ -17,7 +17,7 @@ data class ActivityLogEntity(
     val details: ActivityDetails,
     val referenceId: String?,
     val referenceType: String?,
-    val metadata: ActivityMetadata
+    val metadata: ActivityMetadata // Always non-null in entity (we provide defaults)
 )
 
 fun ActivityLogEntity.toDomain(): ActivityLog {
@@ -50,6 +50,10 @@ fun ActivityLog.toEntity(): ActivityLogEntity {
         details = details,
         referenceId = referenceId,
         referenceType = referenceType,
-        metadata = metadata
+        metadata = metadata ?: ActivityMetadata(
+            deviceType = DeviceType.UNKNOWN,
+            appVersion = "1.0.0",
+            location = null
+        )
     )
 }

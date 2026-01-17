@@ -7,9 +7,13 @@ import com.chorequest.data.remote.ChoreQuestApi
 import com.chorequest.utils.Constants
 import com.chorequest.data.remote.ActivityActionTypeDeserializer
 import com.chorequest.data.remote.ChoreStatusDeserializer
+import com.chorequest.data.remote.DeviceTypeDeserializer
+import com.chorequest.data.remote.RewardRedemptionStatusDeserializer
 import com.chorequest.data.remote.UserRoleDeserializer
 import com.chorequest.domain.models.ActivityActionType
 import com.chorequest.domain.models.ChoreStatus
+import com.chorequest.domain.models.RewardRedemptionStatus
+import com.chorequest.domain.models.DeviceType
 import com.chorequest.domain.models.UserRole
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -39,6 +43,8 @@ object AppModule {
             .registerTypeAdapter(UserRole::class.java, UserRoleDeserializer())
             .registerTypeAdapter(ChoreStatus::class.java, ChoreStatusDeserializer())
             .registerTypeAdapter(ActivityActionType::class.java, ActivityActionTypeDeserializer())
+            .registerTypeAdapter(DeviceType::class.java, DeviceTypeDeserializer())
+            .registerTypeAdapter(RewardRedemptionStatus::class.java, RewardRedemptionStatusDeserializer())
             .create()
     }
 
@@ -50,9 +56,16 @@ object AppModule {
         }
         
         // Interceptor to remove trailing slash before query parameters for Apps Script compatibility
+        // Also adds detailed logging to debug why requests might not reach Apps Script
         val urlFixInterceptor = okhttp3.Interceptor { chain ->
             val originalRequest = chain.request()
             val originalUrl = originalRequest.url // Property, not function
+            
+            // Log the original URL for debugging
+            android.util.Log.d("ChoreQuestApi", "=== HTTP REQUEST ===")
+            android.util.Log.d("ChoreQuestApi", "Method: ${originalRequest.method}")
+            android.util.Log.d("ChoreQuestApi", "Original URL: $originalUrl")
+            android.util.Log.d("ChoreQuestApi", "Headers: ${originalRequest.headers}")
             
             // If URL ends with /exec/?... or /exec/.?..., change it to /exec?...
             val urlString = originalUrl.toString()
@@ -61,6 +74,7 @@ object AppModule {
                 .replace("/exec/.?", "/exec?")
             
             val fixedUrl = if (urlString != fixedUrlString) {
+                android.util.Log.d("ChoreQuestApi", "Fixed URL: $fixedUrlString")
                 fixedUrlString.toHttpUrlOrNull() ?: originalUrl
             } else {
                 originalUrl
@@ -69,6 +83,9 @@ object AppModule {
             val fixedRequest = originalRequest.newBuilder()
                 .url(fixedUrl)
                 .build()
+            
+            android.util.Log.d("ChoreQuestApi", "Final URL: ${fixedRequest.url}")
+            android.util.Log.d("ChoreQuestApi", "===================")
             
             chain.proceed(fixedRequest)
         }

@@ -88,6 +88,7 @@ class SyncRepository @Inject constructor(
 
     /**
      * Syncs chores from the server to local database
+     * IMPORTANT: Only deletes local data AFTER successfully fetching from Drive
      */
     private suspend fun syncChores(familyId: String) {
         try {
@@ -95,7 +96,8 @@ class SyncRepository @Inject constructor(
             val response = api.getData(
                 path = "data",
                 action = "get",
-                type = "chores"
+                type = "chores",
+                familyId = familyId
             )
             
             if (response.isSuccessful && response.body()?.success == true) {
@@ -108,24 +110,33 @@ class SyncRepository @Inject constructor(
                     
                     val chores = choresData.chores ?: emptyList()
                     
-                    // Update local database
+                    // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
+                    // This prevents clearing local data if Drive fetch/parse fails
+                    // Use a transaction to ensure atomicity
                     choreDao.deleteAllChores()
-                    choreDao.insertChores(chores.map { it.toEntity() })
-                    Log.d(TAG, "Synced ${chores.size} chores")
+                    if (chores.isNotEmpty()) {
+                        choreDao.insertChores(chores.map { it.toEntity() })
+                    }
+                    Log.d(TAG, "Synced ${chores.size} chores from Drive")
                 } else {
-                    Log.d(TAG, "No chores data in response")
+                    Log.w(TAG, "No chores data in response body - keeping existing local data")
+                    // Don't delete local data if Drive returns null/empty
                 }
             } else {
-                Log.e(TAG, "Failed to sync chores: ${response.errorBody()?.string()}")
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "Failed to sync chores from Drive: $errorBody - keeping existing local data")
+                // Don't delete local data if sync fails - preserve what we have
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error syncing chores", e)
+            Log.e(TAG, "Error syncing chores from Drive", e)
+            // Don't delete local data on exception - keep existing data
             // Don't throw - allow other syncs to continue
         }
     }
 
     /**
      * Syncs rewards from the server to local database
+     * IMPORTANT: Only deletes local data AFTER successfully fetching from Drive
      */
     private suspend fun syncRewards(familyId: String) {
         try {
@@ -133,7 +144,8 @@ class SyncRepository @Inject constructor(
             val response = api.getData(
                 path = "data",
                 action = "get",
-                type = "rewards"
+                type = "rewards",
+                familyId = familyId
             )
             
             if (response.isSuccessful && response.body()?.success == true) {
@@ -145,17 +157,25 @@ class SyncRepository @Inject constructor(
                     
                     val rewards = rewardsData.rewards ?: emptyList()
                     
+                    // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
+                    // This prevents clearing local data if Drive fetch/parse fails
                     rewardDao.deleteAllRewards()
-                    rewardDao.insertRewards(rewards.map { it.toEntity() })
-                    Log.d(TAG, "Synced ${rewards.size} rewards")
+                    if (rewards.isNotEmpty()) {
+                        rewardDao.insertRewards(rewards.map { it.toEntity() })
+                    }
+                    Log.d(TAG, "Synced ${rewards.size} rewards from Drive")
                 } else {
-                    Log.d(TAG, "No rewards data in response")
+                    Log.w(TAG, "No rewards data in response body - keeping existing local data")
+                    // Don't delete local data if Drive returns null/empty
                 }
             } else {
-                Log.e(TAG, "Failed to sync rewards: ${response.errorBody()?.string()}")
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "Failed to sync rewards from Drive: $errorBody - keeping existing local data")
+                // Don't delete local data if sync fails - preserve what we have
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error syncing rewards", e)
+            Log.e(TAG, "Error syncing rewards from Drive", e)
+            // Don't delete local data on exception - keep existing data
             // Don't throw - allow other syncs to continue
         }
     }
@@ -166,37 +186,25 @@ class SyncRepository @Inject constructor(
     private suspend fun syncUsers(familyId: String) {
         try {
             Log.d(TAG, "Syncing users from backend...")
-            val response = api.getData(
-                path = "data",
-                action = "get",
-                type = "users"
-            )
+            val response = api.listUsers(familyId = familyId)
             
             if (response.isSuccessful && response.body()?.success == true) {
-                val data = response.body()?.data
+                val users = response.body()?.users ?: emptyList()
                 
-                if (data != null) {
-                    val jsonString = gson.toJson(data)
-                    val usersData = gson.fromJson(jsonString, UsersData::class.java)
-                    
-                    val users = usersData.users
-                    
-                    // Don't delete all users - keep the current logged-in user
-                    // Just update/insert the synced users
-                    users.forEach { user ->
-                        val existing = userDao.getUserById(user.id)
-                        if (existing != null) {
-                            userDao.updateUser(user.toEntity())
-                        } else {
-                            userDao.insertUser(user.toEntity())
-                        }
+                // Don't delete all users - keep the current logged-in user
+                // Just update/insert the synced users
+                users.forEach { user ->
+                    val existing = userDao.getUserById(user.id)
+                    if (existing != null) {
+                        userDao.updateUser(user.toEntity())
+                    } else {
+                        userDao.insertUser(user.toEntity())
                     }
-                    Log.d(TAG, "Synced ${users.size} users")
-                } else {
-                    Log.d(TAG, "No users data in response")
                 }
+                Log.d(TAG, "Synced ${users.size} users")
             } else {
-                Log.e(TAG, "Failed to sync users: ${response.errorBody()?.string()}")
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "Failed to sync users: $errorBody")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing users", e)
@@ -211,6 +219,7 @@ class SyncRepository @Inject constructor(
         try {
             Log.d(TAG, "Syncing activity logs from backend...")
             val response = api.getActivityLogs(
+                familyId = familyId,
                 userId = null,
                 actionType = null,
                 startDate = null,

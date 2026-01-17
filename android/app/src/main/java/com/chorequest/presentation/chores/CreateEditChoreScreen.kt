@@ -1,5 +1,6 @@
 package com.chorequest.presentation.chores
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -23,6 +25,7 @@ import com.chorequest.domain.models.User
 import com.chorequest.presentation.components.ChoreQuestTopAppBar
 import com.chorequest.presentation.components.ConfirmationDialog
 import com.chorequest.presentation.users.UserViewModel
+import com.chorequest.utils.AuthorizationHelper
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -46,7 +49,7 @@ fun CreateEditChoreScreen(
     var pointValue by remember { mutableStateOf("10") }
     var subtasks by remember { mutableStateOf(listOf<Subtask>()) }
     var showAddSubtaskDialog by remember { mutableStateOf(false) }
-    var selectedUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedUser by remember { mutableStateOf<String?>(null) }
     var dueDate by remember { mutableStateOf<LocalDate?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showUserSelector by remember { mutableStateOf(false) }
@@ -74,7 +77,7 @@ fun CreateEditChoreScreen(
             description = chore.description
             pointValue = chore.pointValue.toString()
             subtasks = chore.subtasks
-            selectedUsers = chore.assignedTo.toSet()
+            selectedUser = chore.assignedTo.firstOrNull()
             dueDate = chore.dueDate?.let {
                 try {
                     LocalDate.parse(it)
@@ -99,6 +102,58 @@ fun CreateEditChoreScreen(
             }
             else -> {}
         }
+    }
+    
+    val context = LocalContext.current
+    
+    // Show authorization dialog if needed
+    LaunchedEffect(createEditState) {
+        android.util.Log.d("CreateEditChoreScreen", "createEditState changed: $createEditState")
+        if (createEditState is CreateEditState.AuthorizationRequired) {
+            android.util.Log.d("CreateEditChoreScreen", "Authorization required detected!")
+        }
+    }
+    
+    // Authorization dialog - show directly from state
+    when (val state = createEditState) {
+        is CreateEditState.AuthorizationRequired -> {
+            AlertDialog(
+                onDismissRequest = { 
+                    viewModel.resetCreateEditState()
+                },
+                title = { Text("Authorization Required") },
+                text = {
+                    Column {
+                        Text(state.message)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Click 'Authorize' to open your browser and grant Drive access. After authorizing, return to the app and try again.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            AuthorizationHelper.openAuthorizationUrl(context, state.url)
+                            viewModel.resetCreateEditState()
+                        }
+                    ) {
+                        Text("Authorize")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.resetCreateEditState()
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+        else -> {}
     }
 
     // Show loading while fetching chore in edit mode
@@ -137,7 +192,7 @@ fun CreateEditChoreScreen(
                                         currentChore!!.copy(
                                             title = title,
                                             description = description,
-                                            assignedTo = selectedUsers.toList(),
+                                            assignedTo = if (selectedUser != null) listOf(selectedUser!!) else emptyList(),
                                             pointValue = pointValue.toInt(),
                                             dueDate = dueDate?.toString(),
                                             subtasks = subtasks,
@@ -149,7 +204,7 @@ fun CreateEditChoreScreen(
                                     viewModel.createChore(
                                         title = title,
                                         description = description,
-                                        assignedTo = selectedUsers.toList(),
+                                        assignedTo = if (selectedUser != null) listOf(selectedUser!!) else emptyList(),
                                         pointValue = pointValue.toInt(),
                                         dueDate = dueDate?.toString(),
                                         subtasks = subtasks,
@@ -257,14 +312,13 @@ fun CreateEditChoreScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = if (selectedUsers.isEmpty()) {
-                                    "Select family members..."
+                                text = if (selectedUser == null) {
+                                    "Select a family member..."
                                 } else {
-                                    val names = allUsers.filter { it.id in selectedUsers }.map { it.name }
-                                    names.joinToString(", ")
+                                    allUsers.find { it.id == selectedUser }?.name ?: "Unknown"
                                 },
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = if (selectedUsers.isEmpty()) 
+                                color = if (selectedUser == null) 
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                 else 
                                     MaterialTheme.colorScheme.onSurface
@@ -523,10 +577,10 @@ fun CreateEditChoreScreen(
     if (showUserSelector) {
         UserSelectorDialog(
             users = allUsers,
-            selectedUserIds = selectedUsers,
+            selectedUserId = selectedUser,
             onDismiss = { showUserSelector = false },
             onConfirm = { selected ->
-                selectedUsers = selected
+                selectedUser = selected
                 showUserSelector = false
             }
         )
@@ -642,11 +696,11 @@ private fun AddSubtaskDialog(
 @Composable
 private fun UserSelectorDialog(
     users: List<User>,
-    selectedUserIds: Set<String>,
+    selectedUserId: String?,
     onDismiss: () -> Unit,
-    onConfirm: (Set<String>) -> Unit
+    onConfirm: (String?) -> Unit
 ) {
-    var tempSelected by remember { mutableStateOf(selectedUserIds) }
+    var tempSelected by remember { mutableStateOf(selectedUserId) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -668,22 +722,14 @@ private fun UserSelectorDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    tempSelected = if (user.id in tempSelected) {
-                                        tempSelected - user.id
-                                    } else {
-                                        tempSelected + user.id
-                                    }
+                                    tempSelected = if (tempSelected == user.id) null else user.id
                                 },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(
-                                checked = user.id in tempSelected,
-                                onCheckedChange = {
-                                    tempSelected = if (it) {
-                                        tempSelected + user.id
-                                    } else {
-                                        tempSelected - user.id
-                                    }
+                            RadioButton(
+                                selected = user.id == tempSelected,
+                                onClick = {
+                                    tempSelected = if (tempSelected == user.id) null else user.id
                                 }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -707,9 +753,9 @@ private fun UserSelectorDialog(
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(tempSelected) },
-                enabled = tempSelected.isNotEmpty()
+                enabled = tempSelected != null
             ) {
-                Text("Assign (${tempSelected.size})")
+                Text("Assign")
             }
         },
         dismissButton = {

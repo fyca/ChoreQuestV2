@@ -25,6 +25,7 @@ import com.chorequest.presentation.profile.ProfileScreen
 import com.chorequest.presentation.games.GamesScreen
 import com.chorequest.presentation.games.TicTacToeScreen
 import com.chorequest.presentation.games.ChoreQuizScreen
+import com.chorequest.presentation.games.MemoryMatchScreen
 import com.chorequest.data.local.SessionManager
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -303,6 +304,9 @@ fun NavigationGraph(
                 },
                 onNavigateToChoreQuiz = {
                     navController.navigate(NavigationRoutes.ChoreQuiz.route)
+                },
+                onNavigateToMemoryMatch = {
+                    navController.navigate(NavigationRoutes.MemoryMatch.route)
                 }
             )
         }
@@ -315,6 +319,12 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.ChoreQuiz.route) {
             ChoreQuizScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavigationRoutes.MemoryMatch.route) {
+            MemoryMatchScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

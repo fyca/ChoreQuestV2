@@ -1,8 +1,11 @@
 package com.chorequest.presentation.chores
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -59,11 +62,27 @@ fun CompleteChoreScreen(
     val context = LocalContext.current
     
     // Camera launcher
+    var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (!success) {
+        if (success && pendingPhotoUri != null) {
+            photoUri = pendingPhotoUri
+        } else {
             photoUri = null
+            pendingPhotoUri = null
+        }
+    }
+    
+    // Permission launcher for camera
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted && pendingPhotoUri != null) {
+            // Permission granted, launch camera with the prepared URI
+            cameraLauncher.launch(pendingPhotoUri!!)
+        } else {
+            pendingPhotoUri = null
         }
     }
 
@@ -300,8 +319,23 @@ fun CompleteChoreScreen(
                                         "${context.packageName}.fileprovider",
                                         photoFile
                                     )
-                                    photoUri = uri
-                                    cameraLauncher.launch(uri)
+                                    
+                                    // Check camera permission
+                                    when {
+                                        ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.CAMERA
+                                        ) == PackageManager.PERMISSION_GRANTED -> {
+                                            // Permission already granted, launch camera
+                                            pendingPhotoUri = uri
+                                            cameraLauncher.launch(uri)
+                                        }
+                                        else -> {
+                                            // Request camera permission first
+                                            pendingPhotoUri = uri
+                                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                                        }
+                                    }
                                 }
                             ) {
                                 Column(
@@ -408,7 +442,7 @@ fun CompleteChoreScreen(
                     confirmButton = {
                         Button(
                             onClick = {
-                                viewModel.completeChore(choreId, photoUri)
+                                viewModel.completeChore(choreId, photoUri, subtasks)
                                 showConfirmDialog = false
                                 // Don't show celebration yet - wait for success response
                             }

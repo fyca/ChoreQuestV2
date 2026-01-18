@@ -440,6 +440,228 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
 }
 
 /**
+ * Upload image file to Drive using Drive API v3
+ * @param {string} base64Data - Base64 encoded image data
+ * @param {string} fileName - Name for the file
+ * @param {string} mimeType - Image MIME type (image/jpeg, image/png, etc.)
+ * @param {string} choreId - Optional: chore ID to organize files
+ * @param {string} ownerEmail - REQUIRED: Owner email to identify family folder
+ * @param {string} accessToken - REQUIRED: OAuth access token for Drive API calls
+ * @returns {object} File metadata with URL and ID
+ */
+function uploadImageV3(base64Data, fileName, mimeType, choreId, ownerEmail, accessToken) {
+  if (!ownerEmail) {
+    Logger.log('ERROR: ownerEmail is required for uploadImageV3');
+    throw new Error('ownerEmail is required');
+  }
+  
+  if (!accessToken) {
+    Logger.log('ERROR: accessToken is required for uploadImageV3');
+    throw new Error('Access token required: With ME deployment, an OAuth access token must be provided to access the user\'s Drive.');
+  }
+  
+  try {
+    Logger.log('uploadImageV3: Starting upload for owner: ' + ownerEmail);
+    
+    // Get or create ChoreQuest folder
+    const choreQuestFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+    Logger.log('uploadImageV3: Got ChoreQuest folder ID: ' + choreQuestFolderId);
+    
+    // Get or create Photos folder
+    const photosFolderName = 'ChorePhotos';
+    let photosFolderId = getOrCreateFolderV3(photosFolderName, choreQuestFolderId, accessToken);
+    Logger.log('uploadImageV3: Got Photos folder ID: ' + photosFolderId);
+    
+    // Optionally organize by chore ID
+    let targetFolderId = photosFolderId;
+    if (choreId) {
+      targetFolderId = getOrCreateFolderV3(choreId, photosFolderId, accessToken);
+      Logger.log('uploadImageV3: Got chore folder ID: ' + targetFolderId);
+    }
+    
+    // Decode base64 data
+    const binaryData = Utilities.base64Decode(base64Data);
+    Logger.log('uploadImageV3: Decoded image data, size: ' + binaryData.length + ' bytes');
+    
+    // Upload using multipart/form-data
+    const url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const boundary = '----WebKitFormBoundary' + Utilities.getUuid().replace(/-/g, '').substring(0, 16);
+    
+    // Build multipart payload - need to construct as bytes
+    const metadata = {
+      name: fileName,
+      parents: [targetFolderId]
+    };
+    
+    const metadataPart = [
+      '--' + boundary,
+      'Content-Disposition: form-data; name="metadata"; filename=""',
+      'Content-Type: application/json',
+      '',
+      JSON.stringify(metadata),
+      '--' + boundary,
+      'Content-Disposition: form-data; name="file"; filename="' + fileName + '"',
+      'Content-Type: ' + mimeType,
+      '',
+      ''
+    ].join('\r\n');
+    
+    const endBoundary = '\r\n--' + boundary + '--\r\n';
+    
+    // Convert strings to bytes and combine with binary data
+    const metadataBytes = Utilities.newBlob(metadataPart).getBytes();
+    const endBytes = Utilities.newBlob(endBoundary).getBytes();
+    
+    // Combine all parts: metadata (as bytes) + binary image data + end boundary (as bytes)
+    const allBytes = metadataBytes.concat(binaryData).concat(endBytes);
+    
+    const options = {
+      method: 'post',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'multipart/related; boundary=' + boundary
+      },
+      payload: allBytes,
+      muteHttpExceptions: true
+    };
+    
+    Logger.log('uploadImageV3: Uploading to Drive API...');
+    const httpResponse = UrlFetchApp.fetch(url, options);
+    const responseCode = httpResponse.getResponseCode();
+    const responseText = httpResponse.getContentText();
+    
+    if (responseCode !== 200) {
+      Logger.log('ERROR: Drive API upload failed: ' + responseCode);
+      Logger.log('Response: ' + responseText);
+      throw new Error('Failed to upload image: ' + responseCode + ' - ' + responseText);
+    }
+    
+    const fileData = JSON.parse(responseText);
+    Logger.log('uploadImageV3: File uploaded successfully: ' + fileData.id);
+    
+    // Set file permissions to allow anyone with link to view
+    try {
+      const permissionsUrl = 'https://www.googleapis.com/drive/v3/files/' + fileData.id + '/permissions';
+      const permissionsOptions = {
+        method: 'post',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({
+          role: 'reader',
+          type: 'anyone'
+        }),
+        muteHttpExceptions: true
+      };
+      
+      const permissionsResponse = UrlFetchApp.fetch(permissionsUrl, permissionsOptions);
+      if (permissionsResponse.getResponseCode() === 200) {
+        Logger.log('uploadImageV3: File permissions set successfully');
+      } else {
+        Logger.log('WARNING: Could not set file permissions: ' + permissionsResponse.getContentText());
+      }
+    } catch (permError) {
+      Logger.log('WARNING: Error setting file permissions: ' + permError.toString());
+      // Continue anyway - file is uploaded
+    }
+    
+    // Return file info
+    return {
+      success: true,
+      fileId: fileData.id,
+      fileName: fileData.name,
+      url: 'https://drive.google.com/file/d/' + fileData.id + '/view',
+      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + fileData.id,
+      thumbnailUrl: null, // Would require additional API call
+      webViewLink: 'https://drive.google.com/file/d/' + fileData.id + '/view',
+      size: fileData.size || binaryData.length,
+      mimeType: fileData.mimeType || mimeType,
+      createdDate: fileData.createdTime || new Date().toISOString()
+    };
+    
+  } catch (error) {
+    Logger.log('ERROR in uploadImageV3: ' + error.toString());
+    Logger.log('Error stack: ' + (error.stack || 'no stack'));
+    
+    // Check if it's an authorization error
+    const errorStr = error.toString().toLowerCase();
+    if (errorStr.includes('unauthorized') || errorStr.includes('401') || errorStr.includes('permission') || errorStr.includes('access denied')) {
+      Logger.log('Authorization error - user needs to authorize Drive access');
+      throw new Error('Drive access not authorized. User must authorize Drive access.');
+    }
+    
+    return {
+      success: false,
+      error: error.toString()
+    };
+  }
+}
+
+/**
+ * Helper function to get or create a folder in Drive API v3
+ * @param {string} folderName - Name of the folder
+ * @param {string} parentFolderId - Parent folder ID
+ * @param {string} accessToken - OAuth access token
+ * @returns {string} Folder ID
+ */
+function getOrCreateFolderV3(folderName, parentFolderId, accessToken) {
+  try {
+    // Search for existing folder
+    const query = "name='" + folderName + "' and '" + parentFolderId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
+    
+    const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query);
+    const options = {
+      method: 'get',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken
+      },
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    const responseCode = response.getResponseCode();
+    
+    if (responseCode === 200) {
+      const data = JSON.parse(response.getContentText());
+      if (data.files && data.files.length > 0) {
+        Logger.log('getOrCreateFolderV3: Found existing folder: ' + folderName);
+        return data.files[0].id;
+      }
+    }
+    
+    // Folder doesn't exist, create it
+    Logger.log('getOrCreateFolderV3: Creating new folder: ' + folderName);
+    const createUrl = 'https://www.googleapis.com/drive/v3/files';
+    const createOptions = {
+      method: 'post',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify({
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentFolderId]
+      }),
+      muteHttpExceptions: true
+    };
+    
+    const createResponse = UrlFetchApp.fetch(createUrl, createOptions);
+    if (createResponse.getResponseCode() === 200) {
+      const folderData = JSON.parse(createResponse.getContentText());
+      Logger.log('getOrCreateFolderV3: Created folder: ' + folderData.id);
+      return folderData.id;
+    } else {
+      throw new Error('Failed to create folder: ' + createResponse.getContentText());
+    }
+  } catch (error) {
+    Logger.log('ERROR in getOrCreateFolderV3: ' + error.toString());
+    throw new Error('Cannot get or create folder: ' + error.toString());
+  }
+}
+
+/**
  * Load JSON data from a file using Drive API v3
  * @param {string} fileName - Name of the file
  * @param {string} ownerEmail - Owner email to identify family folder (optional if folderId provided)

@@ -199,6 +199,9 @@ class ChoreRepository @Inject constructor(
                     emit(Result.Error("Failed to save chore update to Drive: $errorMsg"))
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Re-throw cancellation exceptions - they should propagate up
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error updating chore", e)
             emit(Result.Error(e.message ?: "Failed to update chore"))

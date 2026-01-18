@@ -18,6 +18,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.clickable
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.rememberAsyncImagePainter
 import com.chorequest.domain.models.ChoreStatus
@@ -25,6 +27,11 @@ import com.chorequest.presentation.components.ChoreQuestTopAppBar
 import com.chorequest.presentation.components.LoadingScreen
 import com.chorequest.presentation.components.ErrorScreen
 import com.chorequest.presentation.users.UserViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.ui.graphics.asImageBitmap
 
 /**
  * Chore detail screen for parents to view and verify chores
@@ -239,16 +246,301 @@ fun ChoreDetailScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp)
                             ) {
-                                Image(
-                                    painter = rememberAsyncImagePainter(chore.photoProof),
-                                    contentDescription = "Chore completion proof",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(250.dp),
-                                    contentScale = ContentScale.Crop
-                                )
+                                // Convert Google Drive URL to proxy format if needed
+                                val imageUrl = remember(chore.photoProof, allUsers) {
+                                    android.util.Log.d("ChoreDetail", "Original photoProof: ${chore.photoProof}")
+                                    
+                                    if (chore.photoProof != null) {
+                                        if (chore.photoProof.contains("drive.google.com")) {
+                                            // Try multiple patterns to extract fileId from different Drive URL formats
+                                            var fileId: String? = null
+                                            
+                                            // Pattern 1: /file/d/{fileId}/view or /file/d/{fileId}
+                                            val pattern1 = Regex("/file/d/([a-zA-Z0-9_-]+)").find(chore.photoProof)
+                                            if (pattern1 != null) {
+                                                fileId = pattern1.groupValues[1]
+                                            }
+                                            
+                                            // Pattern 2: id={fileId} (for query parameter format)
+                                            if (fileId == null) {
+                                                val pattern2 = Regex("[?&]id=([a-zA-Z0-9_-]+)").find(chore.photoProof)
+                                                if (pattern2 != null) {
+                                                    fileId = pattern2.groupValues[1]
+                                                }
+                                            }
+                                            
+                                            if (fileId != null) {
+                                                android.util.Log.d("ChoreDetail", "Extracted fileId: $fileId")
+                                                
+                                                // Get ownerEmail from the current user (primary parent)
+                                                val primaryParent = allUsers.find { it.isPrimaryParent }
+                                                val ownerEmail = primaryParent?.email
+                                                android.util.Log.d("ChoreDetail", "Primary parent: ${primaryParent?.name}, email: $ownerEmail")
+                                                
+                                                if (ownerEmail != null) {
+                                                    val proxyUrl = "${com.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_URL}?path=photo&fileId=$fileId&ownerEmail=$ownerEmail"
+                                                    android.util.Log.d("ChoreDetail", "Using proxy URL: $proxyUrl")
+                                                    proxyUrl
+                                                } else {
+                                                    android.util.Log.w("ChoreDetail", "No primary parent found, using original URL")
+                                                    chore.photoProof
+                                                }
+                                            } else {
+                                                android.util.Log.w("ChoreDetail", "Could not extract fileId from URL: ${chore.photoProof}")
+                                                chore.photoProof
+                                            }
+                                        } else if (chore.photoProof.contains("script.google.com") && chore.photoProof.contains("path=photo")) {
+                                            // Already a proxy URL
+                                            android.util.Log.d("ChoreDetail", "Already using proxy URL: ${chore.photoProof}")
+                                            chore.photoProof
+                                        } else {
+                                            android.util.Log.d("ChoreDetail", "Using original URL (not Drive): ${chore.photoProof}")
+                                            chore.photoProof
+                                        }
+                                    } else {
+                                        android.util.Log.w("ChoreDetail", "photoProof is null")
+                                        null
+                                    }
+                                }
+                                
+                                // Fetch base64 data and convert to Bitmap if it's from our proxy
+                                var imageBitmap by remember(imageUrl) { mutableStateOf<android.graphics.Bitmap?>(null) }
+                                var isLoadingImage by remember(imageUrl) { mutableStateOf(false) }
+                                var imageLoadError by remember(imageUrl) { mutableStateOf<String?>(null) }
+                                
+                                LaunchedEffect(imageUrl) {
+                                    if (imageUrl != null) {
+                                        if (imageUrl.contains("path=photo")) {
+                                            // This is our proxy URL - fetch the base64 data and decode to Bitmap
+                                            isLoadingImage = true
+                                            imageLoadError = null
+                                            // Must run on IO dispatcher to avoid NetworkOnMainThreadException
+                                            withContext(Dispatchers.IO) {
+                                                try {
+                                                    android.util.Log.d("ChoreDetail", "Fetching base64 data from proxy: $imageUrl")
+                                                    val url = java.net.URL(imageUrl)
+                                                    val connection = url.openConnection() as java.net.HttpURLConnection
+                                                    connection.requestMethod = "GET"
+                                                    connection.connectTimeout = 10000
+                                                    connection.readTimeout = 10000
+                                                    
+                                                    val responseCode = connection.responseCode
+                                                    if (responseCode == 200) {
+                                                        val base64Data = connection.inputStream.bufferedReader().use { it.readText() }
+                                                        android.util.Log.d("ChoreDetail", "Received base64 data, length: ${base64Data.length}")
+                                                        
+                                                        // Extract base64 string (remove data URI prefix if present)
+                                                        val base64String = if (base64Data.startsWith("data:")) {
+                                                            base64Data.substringAfter(",")
+                                                        } else {
+                                                            base64Data
+                                                        }
+                                                        
+                                                        // Decode base64 to byte array
+                                                        val imageBytes = Base64.decode(base64String, Base64.DEFAULT)
+                                                        android.util.Log.d("ChoreDetail", "Decoded to ${imageBytes.size} bytes")
+                                                        
+                                                        // Decode byte array to Bitmap
+                                                        val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                                                        if (bitmap != null) {
+                                                            android.util.Log.d("ChoreDetail", "Successfully decoded bitmap: ${bitmap.width}x${bitmap.height}")
+                                                            imageBitmap = bitmap
+                                                        } else {
+                                                            android.util.Log.e("ChoreDetail", "Failed to decode bitmap from byte array")
+                                                            imageLoadError = "Failed to decode image"
+                                                        }
+                                                    } else {
+                                                        android.util.Log.e("ChoreDetail", "Failed to fetch image, response code: $responseCode")
+                                                        imageLoadError = "Failed to fetch image: $responseCode"
+                                                    }
+                                                } catch (e: Exception) {
+                                                    android.util.Log.e("ChoreDetail", "Error fetching/decoding image: ${e.message}", e)
+                                                    imageLoadError = "Error: ${e.message}"
+                                                } finally {
+                                                    isLoadingImage = false
+                                                }
+                                            }
+                                        } else {
+                                            // Not a proxy URL, try to load directly with Coil
+                                            imageBitmap = null
+                                            isLoadingImage = false
+                                        }
+                                    }
+                                }
+                                
+                                when {
+                                    isLoadingImage -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(250.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator()
+                                        }
+                                    }
+                                    imageBitmap != null -> {
+                                        var showFullImage by remember { mutableStateOf(false) }
+                                        
+                                        android.util.Log.d("ChoreDetail", "Displaying decoded bitmap: ${imageBitmap!!.width}x${imageBitmap!!.height}")
+                                        Image(
+                                            bitmap = imageBitmap!!.asImageBitmap(),
+                                            contentDescription = "Chore completion proof",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(250.dp)
+                                                .clickable { showFullImage = true },
+                                            contentScale = ContentScale.Fit
+                                        )
+                                        
+                                        // Full screen image dialog
+                                        if (showFullImage) {
+                                            Dialog(onDismissRequest = { showFullImage = false }) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(MaterialTheme.colorScheme.surface)
+                                                        .clickable { showFullImage = false },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center
+                                                    ) {
+                                                        // Close button
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(16.dp),
+                                                            horizontalArrangement = Arrangement.End
+                                                        ) {
+                                                            IconButton(onClick = { showFullImage = false }) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Close,
+                                                                    contentDescription = "Close",
+                                                                    tint = MaterialTheme.colorScheme.onSurface
+                                                                )
+                                                            }
+                                                        }
+                                                        
+                                                        // Full screen image
+                                                        Image(
+                                                            bitmap = imageBitmap!!.asImageBitmap(),
+                                                            contentDescription = "Chore completion proof (full size)",
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .weight(1f)
+                                                                .padding(16.dp),
+                                                            contentScale = ContentScale.Fit
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    imageUrl != null && !imageUrl.contains("path=photo") -> {
+                                        var showFullImage by remember { mutableStateOf(false) }
+                                        
+                                        // Try loading with Coil for non-proxy URLs
+                                        android.util.Log.d("ChoreDetail", "Loading image from URL with Coil: $imageUrl")
+                                        Image(
+                                            painter = rememberAsyncImagePainter(model = imageUrl),
+                                            contentDescription = "Chore completion proof",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(250.dp)
+                                                .clickable { showFullImage = true },
+                                            contentScale = ContentScale.Fit
+                                        )
+                                        
+                                        // Full screen image dialog
+                                        if (showFullImage) {
+                                            Dialog(onDismissRequest = { showFullImage = false }) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(MaterialTheme.colorScheme.surface)
+                                                        .clickable { showFullImage = false },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center
+                                                    ) {
+                                                        // Close button
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(16.dp),
+                                                            horizontalArrangement = Arrangement.End
+                                                        ) {
+                                                            IconButton(onClick = { showFullImage = false }) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Close,
+                                                                    contentDescription = "Close",
+                                                                    tint = MaterialTheme.colorScheme.onSurface
+                                                                )
+                                                            }
+                                                        }
+                                                        
+                                                        // Full screen image
+                                                        Image(
+                                                            painter = rememberAsyncImagePainter(model = imageUrl),
+                                                            contentDescription = "Chore completion proof (full size)",
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .weight(1f)
+                                                                .padding(16.dp),
+                                                            contentScale = ContentScale.Fit
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    imageLoadError != null -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(250.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Error,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = imageLoadError ?: "Failed to load image",
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                    else -> {
+                                        android.util.Log.e("ChoreDetail", "No image data available")
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(250.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "Photo URL not available",
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
+                    } else {
+                        android.util.Log.d("ChoreDetail", "chore.photoProof is null, not displaying photo section")
                     }
 
                     // Subtasks

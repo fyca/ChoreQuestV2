@@ -6,6 +6,8 @@ import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chorequest.data.local.SessionManager
+import com.chorequest.data.local.dao.UserDao
+import com.chorequest.data.local.entities.toDomain
 import com.chorequest.data.remote.ChoreQuestApi
 import com.chorequest.data.remote.PhotoUploadRequest
 import com.chorequest.data.repository.ChoreRepository
@@ -16,7 +18,9 @@ import com.chorequest.utils.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -31,6 +35,7 @@ class ChoreViewModel @Inject constructor(
     private val choreRepository: ChoreRepository,
     private val sessionManager: SessionManager,
     private val api: ChoreQuestApi,
+    private val userDao: UserDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -239,18 +244,34 @@ class ChoreViewModel @Inject constructor(
                 val fileName = "chore_${choreId}_${System.currentTimeMillis()}.jpg"
                 val session = sessionManager.loadSession()
                 
+                // Get primary parent's email (ownerEmail)
+                val allUsers = userDao.getAllUsers().first()
+                val primaryParent = allUsers.find { it.toDomain().isPrimaryParent }
+                val ownerEmail = primaryParent?.toDomain()?.email
+                    ?: throw Exception("Primary parent not found - cannot upload photo")
+                
                 val response = api.uploadPhoto(
                     request = PhotoUploadRequest(
                         base64Data = base64Data,
                         fileName = fileName,
                         mimeType = "image/jpeg",
                         choreId = choreId,
-                        userId = session?.userId
+                        userId = session?.userId,
+                        ownerEmail = ownerEmail
                     )
                 )
                 
                 if (response.isSuccessful && response.body()?.success == true) {
-                    val photoUrl = response.body()!!.webViewLink ?: response.body()!!.url
+                    // Use fileId to create a proxy URL through our Apps Script backend
+                    // This ensures we get actual image data, not HTML
+                    val fileId = response.body()!!.fileId
+                    val photoUrl = if (fileId != null && ownerEmail != null) {
+                        // Use our backend proxy endpoint to serve the image directly
+                        "${com.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_URL}?path=photo&fileId=$fileId&ownerEmail=$ownerEmail"
+                    } else {
+                        // Fallback to downloadUrl or webViewLink if fileId is missing
+                        response.body()!!.downloadUrl ?: response.body()!!.webViewLink ?: response.body()!!.url
+                    }
                     _uploadProgress.value = UploadProgress.Success(photoUrl ?: "")
                     Result.Success(photoUrl ?: "")
                 } else {
@@ -267,11 +288,49 @@ class ChoreViewModel @Inject constructor(
     }
     
     /**
-     * Complete chore with optional photo
+     * Complete chore with optional photo and subtasks
      */
-    fun completeChore(choreId: String, photoUri: Uri? = null) {
+    fun completeChore(choreId: String, photoUri: Uri? = null, updatedSubtasks: List<Subtask>? = null) {
         viewModelScope.launch {
             val session = sessionManager.loadSession() ?: return@launch
+            
+            // If subtasks were updated, save them to the backend first
+            if (updatedSubtasks != null) {
+                val currentChore = _choreDetailState.value
+                if (currentChore is ChoreDetailState.Success) {
+                    val chore = currentChore.chore
+                    val updatedChore = chore.copy(subtasks = updatedSubtasks)
+                    // Update subtasks on backend before completing
+                    // Wait for the final result (Success or Error), skipping Loading states
+                    var updateCompleted = false
+                    var updateError: String? = null
+                    choreRepository.updateChore(updatedChore)
+                        .filter { it !is Result.Loading }
+                        .take(1)
+                        .collect { result ->
+                            when (result) {
+                                is Result.Success -> {
+                                    updateCompleted = true
+                                }
+                                is Result.Error -> {
+                                    updateError = result.message
+                                    updateCompleted = true
+                                }
+                                is Result.Loading -> {
+                                    // Should not happen after filter
+                                }
+                            }
+                        }
+                    if (updateError != null) {
+                        _choreDetailState.value = ChoreDetailState.Error("Failed to update subtasks: $updateError")
+                        return@launch
+                    }
+                    if (!updateCompleted) {
+                        _choreDetailState.value = ChoreDetailState.Error("Failed to update subtasks: Update did not complete")
+                        return@launch
+                    }
+                }
+            }
             
             // Upload photo first if provided
             val photoUrl = if (photoUri != null) {

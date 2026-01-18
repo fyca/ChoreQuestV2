@@ -136,7 +136,8 @@ data class PhotoUploadRequest(
     val fileName: String,
     val mimeType: String,
     val choreId: String? = null,
-    val userId: String? = null
+    val userId: String? = null,
+    val ownerEmail: String? = null
 )
 
 /**

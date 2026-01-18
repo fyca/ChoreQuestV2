@@ -248,7 +248,13 @@ function updateChore(data) {
     }
     
     // Check authorization
-    if (user.role !== 'parent' && chore.createdBy !== userId) {
+    // Allow parents, creators, or assigned children (for subtask updates)
+    const isParent = user.role === 'parent';
+    const isCreator = chore.createdBy === userId;
+    const isAssigned = Array.isArray(chore.assignedTo) && chore.assignedTo.includes(userId);
+    const canUpdate = isParent || isCreator || (isAssigned && updates.subtasks !== undefined);
+    
+    if (!canUpdate) {
       return createResponse({ error: 'Unauthorized' }, 403);
     }
     

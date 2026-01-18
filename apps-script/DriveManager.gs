@@ -499,7 +499,7 @@ function uploadImage(base64Data, fileName, mimeType, choreId, ownerEmail) {
       fileName: file.getName(),
       url: file.getUrl(),
       downloadUrl: file.getDownloadUrl(),
-      thumbnailUrl: file.getThumbnailLink(),
+      thumbnailUrl: null, // Thumbnail not available via DriveApp, would require Drive API v3
       webViewLink: 'https://drive.google.com/file/d/' + file.getId() + '/view',
       size: file.getSize(),
       mimeType: file.getMimeType(),
@@ -541,7 +541,7 @@ function getImageUrl(fileId) {
       success: true,
       url: file.getUrl(),
       downloadUrl: file.getDownloadUrl(),
-      thumbnailUrl: file.getThumbnailLink(),
+      thumbnailUrl: null, // Thumbnail not available via DriveApp, would require Drive API v3
       webViewLink: 'https://drive.google.com/file/d/' + fileId + '/view'
     };
   } catch (error) {

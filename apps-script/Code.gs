@@ -64,6 +64,9 @@ function doGet(e) {
       return handleRewardsRequest(e);
     } else if (path === 'activity') {
       return handleActivityLogsRequest(e);
+    } else if (path === 'photo') {
+      // Photo proxy endpoint - serves image directly as binary
+      return handlePhotoGet(e);
     }
     
     return createResponse({ error: 'Invalid path' }, 400);
@@ -216,6 +219,9 @@ function doPost(e) {
       return handleBatchPost(e, data);
     } else if (path === 'photos') {
       return handlePhotosPost(e, data);
+    } else if (path === 'photo') {
+      // GET request for photo proxy (serves image directly)
+      return handlePhotoGet(e);
     }
     
     // If we get here, path was invalid
@@ -595,12 +601,19 @@ function handlePhotosPost(e, data) {
  */
 function uploadPhotoHandler(data) {
   try {
-    const { base64Data, fileName, mimeType, choreId } = data;
+    const { base64Data, fileName, mimeType, choreId, ownerEmail, userId } = data;
     
     if (!base64Data || !fileName || !mimeType) {
       return createResponse({ 
         success: false,
         error: 'Missing required fields: base64Data, fileName, mimeType' 
+      }, 400);
+    }
+    
+    if (!ownerEmail) {
+      return createResponse({ 
+        success: false,
+        error: 'Missing required field: ownerEmail' 
       }, 400);
     }
     
@@ -612,22 +625,43 @@ function uploadPhotoHandler(data) {
       }, 400);
     }
     
-    const result = uploadImage(base64Data, fileName, mimeType, choreId);
+    // Get access token for the owner's Drive
+    Logger.log('uploadPhotoHandler: Getting access token for owner: ' + ownerEmail);
+    const userProps = PropertiesService.getUserProperties();
+    const accessTokenKey = 'ACCESS_TOKEN_' + ownerEmail;
+    const accessToken = userProps.getProperty(accessTokenKey);
+    
+    if (!accessToken) {
+      Logger.log('ERROR: No access token found for owner: ' + ownerEmail);
+      return createResponse({
+        success: false,
+        error: 'Drive access not authorized. Please authorize the app to access your Google Drive.'
+      }, 401);
+    }
+    
+    Logger.log('uploadPhotoHandler: Using access token for upload');
+    
+    // Use V3 upload function with access token
+    const result = uploadImageV3(base64Data, fileName, mimeType, choreId, ownerEmail, accessToken);
     
     if (result.success) {
       // Log upload activity
       try {
-        logActivity({
-          type: 'photo_uploaded',
-          userId: data.userId || 'unknown',
-          choreId: choreId || null,
-          details: {
-            fileName: fileName,
-            fileId: result.fileId,
-            size: result.size
-          },
-          timestamp: new Date().toISOString()
-        });
+        // Get family info to log activity properly
+        const familyInfo = getFamilyInfo(userId);
+        if (familyInfo) {
+          logActivity({
+            type: 'photo_uploaded',
+            userId: userId || 'unknown',
+            choreId: choreId || null,
+            details: {
+              fileName: fileName,
+              fileId: result.fileId,
+              size: result.size
+            },
+            timestamp: new Date().toISOString()
+          }, familyInfo.ownerEmail, familyInfo.folderId, familyInfo.accessToken);
+        }
       } catch (logError) {
         Logger.log('Failed to log activity: ' + logError.toString());
       }
@@ -638,6 +672,17 @@ function uploadPhotoHandler(data) {
     }
   } catch (error) {
     Logger.log('Error in uploadPhotoHandler: ' + error.toString());
+    Logger.log('Error stack: ' + (error.stack || 'no stack'));
+    
+    // Check if it's an authorization error
+    const errorStr = error.toString().toLowerCase();
+    if (errorStr.includes('unauthorized') || errorStr.includes('401') || errorStr.includes('permission') || errorStr.includes('access denied') || errorStr.includes('drive access not authorized')) {
+      return createResponse({
+        success: false,
+        error: 'Drive access not authorized. Please authorize the app to access your Google Drive.'
+      }, 401);
+    }
+    
     return createResponse({ 
       success: false,
       error: error.toString() 
@@ -700,6 +745,94 @@ function getPhotoUrlHandler(data) {
       success: false,
       error: error.toString() 
     }, 500);
+  }
+}
+
+/**
+ * Handle GET request for photo proxy (serves image directly as binary)
+ * URL format: /exec?path=photo&fileId={fileId}&ownerEmail={ownerEmail}
+ */
+function handlePhotoGet(e) {
+  try {
+    const fileId = e.parameter.fileId;
+    const ownerEmail = e.parameter.ownerEmail;
+    
+    if (!fileId) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: false,
+        error: 'Missing fileId' 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    if (!ownerEmail) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        success: false,
+        error: 'Missing ownerEmail' 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    Logger.log('handlePhotoGet: Fetching image fileId=' + fileId + ', ownerEmail=' + ownerEmail);
+    
+    // Get access token for the owner's Drive
+    const userProps = PropertiesService.getUserProperties();
+    const accessTokenKey = 'ACCESS_TOKEN_' + ownerEmail;
+    const accessToken = userProps.getProperty(accessTokenKey);
+    
+    if (!accessToken) {
+      Logger.log('ERROR: No access token found for owner: ' + ownerEmail);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'Drive access not authorized'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Fetch image from Drive API v3 using alt=media
+    const downloadUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media';
+    const options = {
+      method: 'get',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken
+      },
+      muteHttpExceptions: true
+    };
+    
+    Logger.log('handlePhotoGet: Fetching from Drive API...');
+    const httpResponse = UrlFetchApp.fetch(downloadUrl, options);
+    const responseCode = httpResponse.getResponseCode();
+    
+    if (responseCode !== 200) {
+      Logger.log('ERROR: Drive API fetch failed: ' + responseCode);
+      Logger.log('Response: ' + httpResponse.getContentText());
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: 'Failed to fetch image: ' + responseCode
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Get image data as blob
+    const imageBlob = httpResponse.getBlob();
+    const mimeType = imageBlob.getContentType() || 'image/jpeg';
+    const imageBytes = imageBlob.getBytes();
+    
+    Logger.log('handlePhotoGet: Image fetched successfully, size=' + imageBytes.length + ', mimeType=' + mimeType);
+    
+    // Convert to base64 and return as data URI
+    // Apps Script web apps can't return binary blobs directly, so we use base64 encoding
+    const base64Data = Utilities.base64Encode(imageBytes);
+    const dataUri = 'data:' + mimeType + ';base64,' + base64Data;
+    
+    // Return as HTML with the image as a data URI
+    // Coil can handle data URIs directly
+    return ContentService.createTextOutput(dataUri)
+      .setMimeType(ContentService.MimeType.TEXT);
+    
+  } catch (error) {
+    Logger.log('Error in handlePhotoGet: ' + error.toString());
+    Logger.log('Error stack: ' + (error.stack || 'no stack'));
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: false,
+      error: error.toString() 
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 

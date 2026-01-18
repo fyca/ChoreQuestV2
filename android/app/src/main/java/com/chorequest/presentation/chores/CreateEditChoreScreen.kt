@@ -256,55 +256,7 @@ fun CreateEditChoreScreen(
         ) {
             item { Spacer(modifier = Modifier.height(8.dp)) }
 
-            // Title
-            item {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Chore Title *") },
-                    placeholder = { Text("e.g., Clean your room") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Default.Title, null)
-                    }
-                )
-            }
-
-            // Description
-            item {
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description") },
-                    placeholder = { Text("Add details about this chore...") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    maxLines = 5,
-                    leadingIcon = {
-                        Icon(Icons.Default.Description, null)
-                    }
-                )
-            }
-
-            // Points
-            item {
-                OutlinedTextField(
-                    value = pointValue,
-                    onValueChange = { if (it.all { char -> char.isDigit() }) pointValue = it },
-                    label = { Text("Point Value *") },
-                    placeholder = { Text("10") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    leadingIcon = {
-                        Icon(Icons.Default.Stars, null)
-                    }
-                )
-            }
-
-            // Assigned To
+            // Assigned To (moved to top)
             item {
                 @OptIn(ExperimentalMaterial3Api::class)
                 Card(
@@ -354,7 +306,7 @@ fun CreateEditChoreScreen(
                 }
             }
 
-            // Age-based recommendations (only when creating and a child is selected)
+            // Age-based recommendations (only when creating and a child is selected) - moved to top
             item {
                 if (!isEditing && selectedUser != null) {
                     val selectedUserObj = allUsers.find { it.id == selectedUser }
@@ -533,6 +485,54 @@ fun CreateEditChoreScreen(
                         }
                     }
                 }
+            }
+
+            // Title
+            item {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Chore Title *") },
+                    placeholder = { Text("e.g., Clean your room") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Default.Title, null)
+                    }
+                )
+            }
+
+            // Description
+            item {
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description") },
+                    placeholder = { Text("Add details about this chore...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    maxLines = 5,
+                    leadingIcon = {
+                        Icon(Icons.Default.Description, null)
+                    }
+                )
+            }
+
+            // Points
+            item {
+                OutlinedTextField(
+                    value = pointValue,
+                    onValueChange = { if (it.all { char -> char.isDigit() }) pointValue = it },
+                    label = { Text("Point Value *") },
+                    placeholder = { Text("10") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    leadingIcon = {
+                        Icon(Icons.Default.Stars, null)
+                    }
+                )
             }
 
             // Due Date

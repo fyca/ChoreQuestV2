@@ -20,7 +20,8 @@ data class UserEntity(
     val createdAt: String,
     val createdBy: String,
     val settings: UserSettings,
-    val stats: UserStats
+    val stats: UserStats,
+    val birthdate: String? = null
 )
 
 fun UserEntity.toDomain(): User {
@@ -39,7 +40,8 @@ fun UserEntity.toDomain(): User {
         createdAt = createdAt,
         createdBy = createdBy,
         settings = settings,
-        stats = stats
+        stats = stats,
+        birthdate = birthdate
     )
 }
 
@@ -59,6 +61,7 @@ fun User.toEntity(): UserEntity {
         createdAt = createdAt,
         createdBy = createdBy,
         settings = settings,
-        stats = stats
+        stats = stats,
+        birthdate = birthdate
     )
 }

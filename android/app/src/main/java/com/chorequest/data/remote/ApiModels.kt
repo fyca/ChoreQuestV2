@@ -270,7 +270,8 @@ data class CreateUserRequest(
     val name: String,
     val role: UserRole,
     val canEarnPoints: Boolean = true,
-    val avatarUrl: String? = null
+    val avatarUrl: String? = null,
+    val birthdate: String? = null // ISO 8601 date string (YYYY-MM-DD), only for children
 )
 
 /**

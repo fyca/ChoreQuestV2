@@ -109,7 +109,7 @@ function createFamilyMember(data) {
     Logger.log('canEarnPoints value (from data object): ' + data.canEarnPoints);
     Logger.log('canEarnPoints type: ' + typeof data.canEarnPoints);
     
-    const { parentUserId, name, role, avatarUrl } = data;
+    const { parentUserId, name, role, avatarUrl, birthdate } = data;
     // Get canEarnPoints directly from data object to avoid destructuring issues
     const canEarnPoints = data.canEarnPoints;
     
@@ -208,7 +208,8 @@ function createFamilyMember(data) {
       stats: {
         totalChoresCompleted: 0,
         currentStreak: 0
-      }
+      },
+      birthdate: birthdate || null // ISO 8601 date string (YYYY-MM-DD), only for children
     };
     
     Logger.log('createFamilyMember: newUser.canEarnPoints = ' + newUser.canEarnPoints);

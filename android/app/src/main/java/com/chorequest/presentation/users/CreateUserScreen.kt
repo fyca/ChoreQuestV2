@@ -5,12 +5,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.chorequest.domain.models.UserRole
 import com.chorequest.presentation.components.ChoreQuestTopAppBar
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 /**
  * Screen for creating a new family member
@@ -27,6 +30,8 @@ fun CreateUserScreen(
     var name by remember { mutableStateOf("") }
     var selectedRole by remember { mutableStateOf(UserRole.CHILD) }
     var canEarnPoints by remember { mutableStateOf(true) }
+    var selectedBirthdate by remember { mutableStateOf<LocalDate?>(null) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     // Handle success state
     LaunchedEffect(createUserState) {
@@ -49,11 +54,13 @@ fun CreateUserScreen(
                     TextButton(
                         onClick = {
                             if (name.isNotBlank()) {
+                                val birthdateString = selectedBirthdate?.format(DateTimeFormatter.ISO_DATE)
                                 viewModel.createUser(
                                     name = name,
                                     role = selectedRole,
                                     canEarnPoints = canEarnPoints,
-                                    avatarUrl = null
+                                    avatarUrl = null,
+                                    birthdate = if (selectedRole == UserRole.CHILD) birthdateString else null
                                 )
                             }
                         },
@@ -117,6 +124,59 @@ fun CreateUserScreen(
                 )
             }
 
+            // Birthdate picker (only for children)
+            if (selectedRole == UserRole.CHILD) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    onClick = { showDatePicker = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Birthdate",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = selectedBirthdate?.format(DateTimeFormatter.ofPattern("MMMM d, yyyy"))
+                                    ?: "Tap to select birthdate",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (selectedBirthdate == null) 
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            Icons.Default.CalendarToday,
+                            contentDescription = "Select birthdate",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                
+                // Date picker dialog
+                if (showDatePicker) {
+                    BirthdatePickerDialog(
+                        initialDate = selectedBirthdate,
+                        onDateSelected = { date ->
+                            selectedBirthdate = date
+                            showDatePicker = false
+                        },
+                        onDismiss = { showDatePicker = false }
+                    )
+                }
+            }
+            
             // Can earn points toggle
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -253,5 +313,46 @@ private fun RoleCard(
                     MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BirthdatePickerDialog(
+    initialDate: LocalDate?,
+    onDateSelected: (LocalDate) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = initialDate?.let {
+            java.time.ZoneId.systemDefault().let { zoneId ->
+                it.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            }
+        }
+    )
+    
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val selectedDate = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(java.time.ZoneId.systemDefault())
+                            .toLocalDate()
+                        onDateSelected(selectedDate)
+                    }
+                }
+            ) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    ) {
+        DatePicker(state = datePickerState)
     }
 }

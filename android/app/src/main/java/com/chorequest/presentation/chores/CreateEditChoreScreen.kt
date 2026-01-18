@@ -1,21 +1,31 @@
 package com.chorequest.presentation.chores
 
 import android.content.Context
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.chorequest.domain.models.Chore
 import com.chorequest.domain.models.RecurringFrequency
@@ -26,6 +36,10 @@ import com.chorequest.presentation.components.ChoreQuestTopAppBar
 import com.chorequest.presentation.components.ConfirmationDialog
 import com.chorequest.presentation.users.UserViewModel
 import com.chorequest.utils.AuthorizationHelper
+import com.chorequest.utils.AgeUtils
+import com.chorequest.utils.AgeGroup
+import com.chorequest.utils.ChoreRecommendations
+import com.chorequest.domain.models.UserRole
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -226,6 +240,13 @@ fun CreateEditChoreScreen(
             )
         }
     ) { padding ->
+        val density = LocalDensity.current
+        val itemHeightPx = remember { with(density) { 60.dp.toPx() } }
+        
+        // Drag and drop state for subtasks
+        var draggedIndex by remember { mutableStateOf<Int?>(null) }
+        var dragOffset by remember { mutableStateOf(0f) }
+        
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -329,6 +350,187 @@ fun CreateEditChoreScreen(
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            // Age-based recommendations (only when creating and a child is selected)
+            item {
+                if (!isEditing && selectedUser != null) {
+                    val selectedUserObj = allUsers.find { it.id == selectedUser }
+                    if (selectedUserObj?.role == UserRole.CHILD) {
+                        var isExpanded by remember { mutableStateOf(false) }
+                        val age = AgeUtils.calculateAge(selectedUserObj.birthdate)
+                        val recommendations = if (age != null) {
+                            ChoreRecommendations.getRecommendedChoresForAge(age)
+                        } else {
+                            // If no birthdate, show general recommendations for common age groups
+                            ChoreRecommendations.getRecommendedChores(AgeGroup.EARLY_ELEMENTARY) +
+                            ChoreRecommendations.getRecommendedChores(AgeGroup.LATE_ELEMENTARY)
+                        }.distinctBy { it.title } // Remove duplicates
+                        
+                        // Always show recommendations section for children
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Clickable header to expand/collapse
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { isExpanded = !isExpanded },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Lightbulb,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Column {
+                                            Text(
+                                                text = "Age-Appropriate Suggestions",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                            if (age != null) {
+                                                Text(
+                                                    text = "Based on ${selectedUserObj.name}'s age ($age years old) • ${recommendations.size} suggestions",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = "General suggestions for ${selectedUserObj.name} • ${recommendations.size} suggestions",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Icon(
+                                        if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                                
+                                // Show recommendations when expanded
+                                if (isExpanded && recommendations.isNotEmpty()) {
+                                    // Scrollable list of recommendations
+                                    Column(
+                                        modifier = Modifier
+                                            .heightIn(max = 400.dp)
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        recommendations.forEach { recommendation ->
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = MaterialTheme.colorScheme.surface
+                                                ),
+                                                onClick = {
+                                                    title = recommendation.title
+                                                    description = recommendation.description
+                                                    pointValue = recommendation.suggestedPoints.toString()
+                                                    // Populate subtasks if the recommendation has them
+                                                    if (recommendation.subtasks.isNotEmpty()) {
+                                                        subtasks = recommendation.subtasks.mapIndexed { index, subtaskTitle ->
+                                                            Subtask(
+                                                                id = java.util.UUID.randomUUID().toString(),
+                                                                title = subtaskTitle,
+                                                                completed = false
+                                                            )
+                                                        }
+                                                    } else {
+                                                        subtasks = emptyList()
+                                                    }
+                                                }
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(12.dp)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = recommendation.title,
+                                                                    style = MaterialTheme.typography.bodyLarge,
+                                                                    fontWeight = FontWeight.Medium
+                                                                )
+                                                                if (recommendation.subtasks.isNotEmpty()) {
+                                                                    Icon(
+                                                                        Icons.Default.List,
+                                                                        contentDescription = "${recommendation.subtasks.size} subtasks",
+                                                                        modifier = Modifier.size(16.dp),
+                                                                        tint = MaterialTheme.colorScheme.primary
+                                                                    )
+                                                                    Text(
+                                                                        text = "${recommendation.subtasks.size}",
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        color = MaterialTheme.colorScheme.primary
+                                                                    )
+                                                                }
+                                                            }
+                                                            Text(
+                                                                text = recommendation.description,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                modifier = Modifier.padding(top = 4.dp)
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text(
+                                                            text = "${recommendation.suggestedPoints} pts",
+                                                            style = MaterialTheme.typography.labelLarge,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    Text(
+                                        text = "Tap any suggestion to use it (includes subtasks if shown)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                                        modifier = Modifier.padding(top = 8.dp)
+                                    )
+                                } else if (isExpanded && recommendations.isEmpty()) {
+                                    Text(
+                                        text = "No recommendations available. Add a birthdate for age-specific suggestions.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -525,13 +727,50 @@ fun CreateEditChoreScreen(
                 }
             }
 
-            // Subtasks list
+            // Subtasks list with drag and drop reordering
             itemsIndexed(subtasks) { index, subtask ->
+                val isDragging = draggedIndex == index
+                
                 SubtaskItem(
                     subtask = subtask,
+                    isDragging = isDragging,
+                    dragOffset = if (isDragging) dragOffset else 0f,
+                    itemHeightPx = itemHeightPx,
                     onRemove = {
                         subtasks = subtasks.toMutableList().also { it.removeAt(index) }
-                    }
+                    },
+                    onDragStart = {
+                        draggedIndex = index
+                        dragOffset = 0f
+                    },
+                    onDrag = { dragAmount ->
+                        if (draggedIndex != null) {
+                            val fromIndex = draggedIndex!!
+                            dragOffset += dragAmount.y
+                            
+                            // Calculate target index based on cumulative drag offset
+                            val targetIndex = when {
+                                dragOffset > itemHeightPx * 0.5f && fromIndex < subtasks.size - 1 -> fromIndex + 1
+                                dragOffset < -itemHeightPx * 0.5f && fromIndex > 0 -> fromIndex - 1
+                                else -> fromIndex
+                            }
+                            
+                            // Reorder if target index changed
+                            if (targetIndex != fromIndex) {
+                                val newList = subtasks.toMutableList()
+                                val item = newList.removeAt(fromIndex)
+                                newList.add(targetIndex, item)
+                                subtasks = newList
+                                draggedIndex = targetIndex
+                                dragOffset = 0f // Reset offset after reorder
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        draggedIndex = null
+                        dragOffset = 0f
+                    },
+                    index = index
                 )
             }
 
@@ -613,15 +852,47 @@ fun CreateEditChoreScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SubtaskItem(
     subtask: Subtask,
-    onRemove: () -> Unit
+    isDragging: Boolean,
+    dragOffset: Float,
+    itemHeightPx: Float,
+    onRemove: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (dragAmount: androidx.compose.ui.geometry.Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    index: Int
 ) {
+    val density = LocalDensity.current
+    val offsetY = with(density) { dragOffset.toDp() }
+    
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .offset(y = offsetY)
+            .then(
+                if (isDragging) {
+                    Modifier.alpha(0.8f).zIndex(1f)
+                } else {
+                    Modifier
+                }
+            )
+            .pointerInput(index) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { onDragStart() },
+                    onDrag = { change, dragAmount ->
+                        onDrag(dragAmount)
+                    },
+                    onDragEnd = { onDragEnd() }
+                )
+            },
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (isDragging) 
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+            else 
+                MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Row(
@@ -630,6 +901,14 @@ private fun SubtaskItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Drag handle icon (using Menu icon as drag handle)
+            Icon(
+                imageVector = Icons.Default.Menu,
+                contentDescription = "Drag to reorder",
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Icon(
                 imageVector = Icons.Default.CheckCircleOutline,
                 contentDescription = null,

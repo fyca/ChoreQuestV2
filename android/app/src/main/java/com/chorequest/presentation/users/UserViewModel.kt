@@ -73,12 +73,13 @@ class UserViewModel @Inject constructor(
         name: String,
         role: UserRole,
         canEarnPoints: Boolean,
-        avatarUrl: String?
+        avatarUrl: String?,
+        birthdate: String? = null
     ) {
         viewModelScope.launch {
             _createUserState.value = CreateUserState.Loading
 
-            userRepository.createUser(name, role, canEarnPoints, avatarUrl).collect { result ->
+            userRepository.createUser(name, role, canEarnPoints, avatarUrl, birthdate).collect { result ->
                 when (result) {
                     is Result.Success -> {
                         _createUserState.value = CreateUserState.Success(result.data)

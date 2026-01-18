@@ -30,7 +30,8 @@ import com.chorequest.presentation.theme.*
 @Composable
 fun GamesScreen(
     onNavigateBack: () -> Unit,
-    onNavigateToTicTacToe: () -> Unit = {}
+    onNavigateToTicTacToe: () -> Unit = {},
+    onNavigateToChoreQuiz: () -> Unit = {}
 ) {
     val games = remember {
         listOf(
@@ -152,6 +153,7 @@ fun GamesScreen(
                         onClick = {
                             when (game.id) {
                                 "tic-tac-toe" -> onNavigateToTicTacToe()
+                                "quiz" -> onNavigateToChoreQuiz()
                                 // TODO: Add navigation for other games
                                 else -> {
                                     // Placeholder for other games

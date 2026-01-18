@@ -54,7 +54,8 @@ data class User(
     val createdAt: String,
     val createdBy: String,
     val settings: UserSettings,
-    val stats: UserStats
+    val stats: UserStats,
+    val birthdate: String? = null // ISO 8601 date string (YYYY-MM-DD), only for children
 )
 
 data class Device(

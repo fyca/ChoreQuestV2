@@ -54,7 +54,8 @@ class UserRepository @Inject constructor(
         name: String,
         role: UserRole,
         canEarnPoints: Boolean,
-        avatarUrl: String?
+        avatarUrl: String?,
+        birthdate: String? = null
     ): Flow<Result<User>> = flow {
         emit(Result.Loading)
         try {
@@ -75,18 +76,22 @@ class UserRepository @Inject constructor(
                 name = name,
                 role = role,
                 canEarnPoints = canEarnPoints,
-                avatarUrl = avatarUrl
+                avatarUrl = avatarUrl,
+                birthdate = birthdate
             )
             Log.d("UserRepository", "Creating user with canEarnPoints: $canEarnPoints (type: ${canEarnPoints::class.java.simpleName})")
-            Log.d("UserRepository", "Request object: parentUserId=${request.parentUserId}, name=${request.name}, role=${request.role}, canEarnPoints=${request.canEarnPoints}, avatarUrl=${request.avatarUrl}")
+            Log.d("UserRepository", "Request object: parentUserId=${request.parentUserId}, name=${request.name}, role=${request.role}, canEarnPoints=${request.canEarnPoints}, avatarUrl=${request.avatarUrl}, birthdate=${request.birthdate}")
             val response = api.createUser(request = request)
             
             if (response.isSuccessful && response.body()?.success == true) {
                 val serverUser = response.body()?.user
                 if (serverUser != null) {
+                    Log.d("UserRepository", "Server user received - name: ${serverUser.name}, birthdate: ${serverUser.birthdate}")
                     // Save server-created user to local database
-                    userDao.insertUser(serverUser.toEntity())
-                    Log.i("UserRepository", "User created successfully on server: ${serverUser.name}")
+                    val entity = serverUser.toEntity()
+                    Log.d("UserRepository", "Entity before save - name: ${entity.name}, birthdate: ${entity.birthdate}")
+                    userDao.insertUser(entity)
+                    Log.i("UserRepository", "User created successfully on server: ${serverUser.name}, birthdate: ${serverUser.birthdate}")
                     emit(Result.Success(serverUser))
                 } else {
                     Log.w("UserRepository", "Server response missing user data")

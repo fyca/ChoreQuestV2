@@ -60,4 +60,5 @@ sealed class NavigationRoutes(val route: String) {
     // Games
     object Games : NavigationRoutes("games")
     object TicTacToe : NavigationRoutes("tic_tac_toe")
+    object ChoreQuiz : NavigationRoutes("chore_quiz")
 }

@@ -318,6 +318,29 @@ function saveData(entityType, data) {
 /**
  * Handle batch updates
  */
+/**
+ * Handle batch GET requests (read multiple files)
+ */
+function handleBatchRequest(e) {
+  try {
+    const action = e.parameter.action;
+    const types = e.parameter.types; // Comma-separated list: "users,chores,rewards"
+    const familyId = e.parameter.familyId;
+    
+    if (action === 'read' && types) {
+      return getBatchData(types, familyId);
+    }
+    
+    return createResponse({ error: 'Invalid batch action or missing types parameter' }, 400);
+  } catch (error) {
+    Logger.log('Error in handleBatchRequest: ' + error.toString());
+    return createResponse({ error: error.toString() }, 500);
+  }
+}
+
+/**
+ * Handle batch POST requests (write multiple files)
+ */
 function handleBatchPost(e, data) {
   try {
     const updates = data.updates;
@@ -335,6 +358,75 @@ function handleBatchPost(e, data) {
     
   } catch (error) {
     Logger.log('Error in handleBatchPost: ' + error.toString());
+    return createResponse({ error: error.toString() }, 500);
+  }
+}
+
+/**
+ * Get multiple data files in a single request
+ * @param {string} types - Comma-separated list of entity types: "users,chores,rewards,family"
+ * @param {string} familyId - Optional family ID to filter by
+ * @returns {object} Response with all requested data
+ */
+function getBatchData(types, familyId) {
+  try {
+    Logger.log('getBatchData: types=' + types + ', familyId=' + (familyId || 'none'));
+    
+    // Get family info
+    const familyInfo = getFamilyInfoForSync(familyId);
+    if (!familyInfo) {
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId, accessToken } = familyInfo;
+    
+    // Parse types
+    const typeList = types.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    Logger.log('getBatchData: Parsed types: ' + JSON.stringify(typeList));
+    
+    // Map entity types to file names
+    const typeToFile = {
+      'family': FILE_NAMES.FAMILY,
+      'users': FILE_NAMES.USERS,
+      'chores': FILE_NAMES.CHORES,
+      'rewards': FILE_NAMES.REWARDS,
+      'reward_redemptions': FILE_NAMES.REWARD_REDEMPTIONS,
+      'transactions': FILE_NAMES.TRANSACTIONS,
+      'activity_log': FILE_NAMES.ACTIVITY_LOG
+    };
+    
+    // Load all requested files
+    const results = {};
+    const errors = {};
+    
+    for (const type of typeList) {
+      const fileName = typeToFile[type];
+      if (!fileName) {
+        Logger.log('getBatchData: Unknown type: ' + type);
+        errors[type] = 'Unknown entity type';
+        continue;
+      }
+      
+      try {
+        Logger.log('getBatchData: Loading ' + type + ' from ' + fileName);
+        const data = loadJsonFileV3(fileName, ownerEmail, folderId, accessToken);
+        results[type] = data;
+        Logger.log('getBatchData: Successfully loaded ' + type);
+      } catch (error) {
+        Logger.log('getBatchData: Error loading ' + type + ': ' + error.toString());
+        errors[type] = error.toString();
+        // Continue loading other files even if one fails
+      }
+    }
+    
+    return createResponse({
+      success: true,
+      data: results,
+      errors: Object.keys(errors).length > 0 ? errors : undefined
+    });
+    
+  } catch (error) {
+    Logger.log('Error in getBatchData: ' + error.toString());
     return createResponse({ error: error.toString() }, 500);
   }
 }

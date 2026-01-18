@@ -93,6 +93,15 @@ interface ChoreQuestApi {
         @Query("types") types: String? = null
     ): Response<ChangesSinceResponse>
 
+    // Batch Operations
+    @GET(".")
+    suspend fun getBatchData(
+        @Query("path") path: String = "batch",
+        @Query("action") action: String = "read",
+        @Query("types") types: String, // Comma-separated: "users,chores,rewards"
+        @Query("familyId") familyId: String? = null
+    ): Response<BatchDataResponse>
+
     // Rewards (Drive-backed via Apps Script RewardManager.gs)
     @POST(".")
     suspend fun createReward(

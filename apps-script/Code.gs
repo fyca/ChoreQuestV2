@@ -54,6 +54,8 @@ function doGet(e) {
       return handleDataRequest(e);
     } else if (path === 'sync') {
       return handleSyncRequest(e);
+    } else if (path === 'batch') {
+      return handleBatchRequest(e);
     } else if (path === 'users') {
       return handleUsersRequest(e);
     } else if (path === 'chores') {

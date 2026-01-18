@@ -12,9 +12,10 @@ import com.chorequest.data.local.entities.*
         RewardEntity::class,
         UserEntity::class,
         ActivityLogEntity::class,
-        TransactionEntity::class
+        TransactionEntity::class,
+        RewardRedemptionEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -24,4 +25,5 @@ abstract class ChoreQuestDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun activityLogDao(): ActivityLogDao
     abstract fun transactionDao(): TransactionDao
+    abstract fun rewardRedemptionDao(): RewardRedemptionDao
 }

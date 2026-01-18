@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.chorequest.data.local.SessionManager
 import com.chorequest.data.local.dao.RewardDao
+import com.chorequest.data.local.dao.RewardRedemptionDao
 import com.chorequest.data.local.entities.toEntity
 import com.chorequest.data.local.entities.toDomain
 import com.chorequest.data.remote.*
@@ -11,9 +12,14 @@ import com.chorequest.domain.models.Reward
 import com.chorequest.domain.models.RewardRedemption
 import com.chorequest.utils.Result
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +30,7 @@ import javax.inject.Singleton
 class RewardRepository @Inject constructor(
     private val api: ChoreQuestApi,
     private val rewardDao: RewardDao,
+    private val rewardRedemptionDao: RewardRedemptionDao,
     private val sessionManager: SessionManager,
     @ApplicationContext private val context: Context
 ) {
@@ -211,22 +218,66 @@ class RewardRepository @Inject constructor(
     }
 
     /**
+     * Get reward redemptions from local database as Flow
+     */
+    fun getLocalRedemptions(userId: String? = null): Flow<List<RewardRedemption>> {
+        return if (userId != null) {
+            rewardRedemptionDao.getRedemptionsByUserId(userId).map { entities ->
+                entities.map { it.toDomain() }
+            }
+        } else {
+            rewardRedemptionDao.getAllRedemptions().map { entities ->
+                entities.map { it.toDomain() }
+            }
+        }
+    }
+
+    /**
      * Get reward redemptions for the current user, or all pending redemptions for the family
+     * Uses local-first approach: returns local data immediately, syncs in background
      */
     suspend fun getRewardRedemptions(userId: String? = null, familyId: String? = null): Result<List<RewardRedemption>> {
-        return try {
-            val response = api.getRewardRedemptions(userId = userId, familyId = familyId)
-            if (response.isSuccessful && response.body()?.success == true) {
-                val redemptions = response.body()?.redemptions ?: emptyList()
-                Result.Success(redemptions)
+        // First, get local data immediately
+        val localRedemptions = try {
+            if (userId != null) {
+                rewardRedemptionDao.getRedemptionsByUserId(userId)
             } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to fetch redemptions"
-                Result.Error(errorMsg)
+                rewardRedemptionDao.getAllRedemptions()
             }
         } catch (e: Exception) {
-            Log.e("RewardRepository", "Get redemptions failed: ${e.message}")
-            Result.Error("Failed to fetch redemptions: ${e.message}")
+            Log.e("RewardRepository", "Error reading local redemptions: ${e.message}")
+            null
         }
+        
+        // Get first value from Flow (local data)
+        val localList = localRedemptions?.let { flow ->
+            withContext(Dispatchers.IO) {
+                flow.firstOrNull()?.map { it.toDomain() } ?: emptyList()
+            }
+        } ?: emptyList()
+        
+        // Sync from server in background (non-blocking) using coroutineScope
+        kotlinx.coroutines.coroutineScope {
+            launch(Dispatchers.IO) {
+                try {
+                    val response = api.getRewardRedemptions(userId = userId, familyId = familyId)
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        val redemptions = response.body()?.redemptions ?: emptyList()
+                        // Update local database
+                        rewardRedemptionDao.deleteAllRedemptions()
+                        if (redemptions.isNotEmpty()) {
+                            rewardRedemptionDao.insertRedemptions(redemptions.map { it.toEntity() })
+                        }
+                        Log.d("RewardRepository", "Synced ${redemptions.size} redemptions from server")
+                    }
+                } catch (e: Exception) {
+                    Log.e("RewardRepository", "Background sync of redemptions failed: ${e.message}")
+                }
+            }
+        }
+        
+        // Return local data immediately
+        return Result.Success(localList)
     }
     
     /**

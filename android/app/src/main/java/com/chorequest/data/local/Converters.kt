@@ -147,4 +147,14 @@ class Converters {
     fun toTransactionType(value: String): TransactionType {
         return TransactionType.valueOf(value)
     }
+
+    @TypeConverter
+    fun fromRewardRedemptionStatus(value: RewardRedemptionStatus): String {
+        return value.name
+    }
+
+    @TypeConverter
+    fun toRewardRedemptionStatus(value: String): RewardRedemptionStatus {
+        return RewardRedemptionStatus.valueOf(value)
+    }
 }

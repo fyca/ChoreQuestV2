@@ -15,12 +15,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.chorequest.domain.models.Reward
+import com.chorequest.domain.models.RewardRedemption
+import com.chorequest.domain.models.RewardRedemptionStatus
 import com.chorequest.presentation.components.*
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 
 /**
  * Rewards marketplace screen for children to browse and redeem rewards
@@ -35,7 +40,13 @@ fun RewardsMarketplaceScreen(
     val allRewards by viewModel.allRewards.collectAsState()
     val redeemState by viewModel.redeemState.collectAsState()
     val actualUserPointsBalance by viewModel.userPointsBalance.collectAsState()
+    val previousRedemptions by viewModel.previousRedemptions.collectAsState()
     var selectedReward by remember { mutableStateOf<Reward?>(null) }
+
+    // Refresh redemptions when screen becomes visible
+    LaunchedEffect(Unit) {
+        viewModel.refreshRedemptions()
+    }
 
     // Show confirmation dialog when reward selected
         selectedReward?.let { reward ->
@@ -155,6 +166,26 @@ fun RewardsMarketplaceScreen(
                         userPoints = actualUserPointsBalance,
                         onClick = { selectedReward = reward }
                     )
+                }
+
+                // Previous Redemptions section
+                if (previousRedemptions.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "📜 Previous Redemptions",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+
+                    items(previousRedemptions) { redemption ->
+                        PreviousRedemptionCard(
+                            redemption = redemption,
+                            reward = allRewards.find { it.id == redemption.rewardId }
+                        )
+                    }
                 }
             }
         }
@@ -372,4 +403,146 @@ private fun RedeemConfirmationDialog(
             }
         }
     )
+}
+
+@Composable
+private fun PreviousRedemptionCard(
+    redemption: RewardRedemption,
+    reward: Reward?
+) {
+    val statusColor = when (redemption.status) {
+        RewardRedemptionStatus.APPROVED -> Color(0xFF4CAF50)
+        RewardRedemptionStatus.DENIED -> Color(0xFFF44336)
+        RewardRedemptionStatus.COMPLETED -> Color(0xFF2196F3)
+        else -> Color.Gray
+    }
+
+    val statusIcon = when (redemption.status) {
+        RewardRedemptionStatus.APPROVED -> Icons.Default.CheckCircle
+        RewardRedemptionStatus.DENIED -> Icons.Default.Cancel
+        RewardRedemptionStatus.COMPLETED -> Icons.Default.Done
+        else -> Icons.Default.Schedule
+    }
+
+    val statusText = when (redemption.status) {
+        RewardRedemptionStatus.APPROVED -> "Approved"
+        RewardRedemptionStatus.DENIED -> "Denied"
+        RewardRedemptionStatus.COMPLETED -> "Completed"
+        else -> "Unknown"
+    }
+
+    // Parse date
+    val dateText = try {
+        val instant = Instant.parse(redemption.requestedAt)
+        val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy")
+            .withLocale(java.util.Locale.getDefault())
+        java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+            .format(formatter)
+    } catch (e: Exception) {
+        redemption.requestedAt.take(10) // Fallback to first 10 chars
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Reward icon
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondary),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = reward?.imageUrl ?: "🎁",
+                    fontSize = 32.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = (reward?.title ?: redemption.rewardTitle),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                Text(
+                    text = "Requested on $dateText",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Status indicator
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = statusIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = statusColor
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = statusColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // Denial reason if denied
+                if (redemption.status == RewardRedemptionStatus.DENIED && !redemption.denialReason.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Reason: ${redemption.denialReason}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                        fontStyle = FontStyle.Italic
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Points badge
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(statusColor.copy(alpha = 0.2f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Stars,
+                        contentDescription = null,
+                        tint = statusColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${redemption.pointCost}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor
+                    )
+                }
+            }
+        }
+    }
 }

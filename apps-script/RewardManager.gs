@@ -352,7 +352,9 @@ function redeemReward(data) {
     const redemption = {
       id: redemptionId,
       userId: userId,
+      userName: user.name, // Include userName for easier display
       rewardId: rewardId,
+      rewardTitle: reward.title, // Include rewardTitle for easier display
       status: 'pending',
       requestedAt: new Date().toISOString(),
       approvedBy: null,

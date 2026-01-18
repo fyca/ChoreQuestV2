@@ -6,6 +6,8 @@ import com.chorequest.data.local.SessionManager
 import com.chorequest.data.repository.RewardRepository
 import com.chorequest.data.repository.UserRepository
 import com.chorequest.domain.models.Reward
+import com.chorequest.domain.models.RewardRedemption
+import com.chorequest.domain.models.RewardRedemptionStatus
 import com.chorequest.utils.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -48,11 +50,15 @@ class RewardViewModel @Inject constructor(
     private val _redeemState = MutableStateFlow<RedeemState>(RedeemState.Idle)
     val redeemState: StateFlow<RedeemState> = _redeemState.asStateFlow()
 
+    private val _previousRedemptions = MutableStateFlow<List<RewardRedemption>>(emptyList())
+    val previousRedemptions: StateFlow<List<RewardRedemption>> = _previousRedemptions.asStateFlow()
+
     val currentUserId: String? 
         get() = sessionManager.loadSession()?.userId
 
     init {
         loadAllRewards()
+        loadPreviousRedemptions()
     }
 
     /**
@@ -182,6 +188,8 @@ class RewardViewModel @Inject constructor(
                 when (result) {
                     is Result.Success -> {
                         _redeemState.value = RedeemState.Success(result.data)
+                        // Refresh redemptions list after successful redemption
+                        refreshRedemptions()
                     }
                     is Result.Error -> {
                         _redeemState.value = RedeemState.Error(result.message)
@@ -206,6 +214,43 @@ class RewardViewModel @Inject constructor(
      */
     fun resetRedeemState() {
         _redeemState.value = RedeemState.Idle
+    }
+
+    /**
+     * Load previous redemptions (non-pending) for the current user
+     * Uses local-first approach with Flow for real-time updates
+     */
+    fun loadPreviousRedemptions() {
+        viewModelScope.launch {
+            val session = sessionManager.loadSession() ?: return@launch
+            
+            // Use local redemptions Flow for real-time updates
+            rewardRepository.getLocalRedemptions(session.userId)
+                .map { redemptions ->
+                    // Filter out pending redemptions - only show approved, denied, or completed
+                    redemptions.filter { 
+                        it.status != RewardRedemptionStatus.PENDING 
+                    }.sortedByDescending { 
+                        it.requestedAt 
+                    }
+                }
+                .collect { previous ->
+                    _previousRedemptions.value = previous
+                }
+        }
+        
+        // Trigger background sync (non-blocking, separate coroutine)
+        viewModelScope.launch {
+            val session = sessionManager.loadSession() ?: return@launch
+            rewardRepository.getRewardRedemptions(userId = session.userId)
+        }
+    }
+
+    /**
+     * Refresh redemptions (called after redeeming a reward)
+     */
+    fun refreshRedemptions() {
+        loadPreviousRedemptions()
     }
 }
 

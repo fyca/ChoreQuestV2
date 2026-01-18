@@ -3,6 +3,8 @@ package com.chorequest.di
 import android.content.Context
 import androidx.room.Room
 import com.chorequest.data.local.ChoreQuestDatabase
+import com.chorequest.data.local.CustomRoomCallback
+import com.chorequest.data.local.migrations.MIGRATION_1_2
 import com.chorequest.data.remote.ChoreQuestApi
 import com.chorequest.utils.Constants
 import com.chorequest.data.remote.ActivityActionTypeDeserializer
@@ -140,8 +142,10 @@ object AppModule {
         return Room.databaseBuilder(
             context,
             ChoreQuestDatabase::class.java,
-            "chorequest_database"
+            "chorequest_database_v2" // Changed name to force fresh database
         )
+            .addCallback(CustomRoomCallback())
+            .addMigrations(MIGRATION_1_2)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -165,4 +169,8 @@ object AppModule {
     @Provides
     @Singleton
     fun provideTransactionDao(database: ChoreQuestDatabase) = database.transactionDao()
+
+    @Provides
+    @Singleton
+    fun provideRewardRedemptionDao(database: ChoreQuestDatabase) = database.rewardRedemptionDao()
 }

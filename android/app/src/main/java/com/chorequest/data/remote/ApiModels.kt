@@ -85,6 +85,16 @@ data class Changes(
 )
 
 /**
+ * Batch data response - contains multiple entity types in a single response
+ */
+data class BatchDataResponse(
+    val success: Boolean,
+    val data: Map<String, Any>? = null, // Keyed by entity type: "users", "chores", etc.
+    val errors: Map<String, String>? = null, // Any errors per entity type
+    val error: String? = null
+)
+
+/**
  * Batch operation request
  */
 data class BatchRequest(

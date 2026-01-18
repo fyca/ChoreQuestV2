@@ -5,6 +5,7 @@ import com.chorequest.data.local.SessionManager
 import com.chorequest.data.local.dao.ActivityLogDao
 import com.chorequest.data.local.dao.ChoreDao
 import com.chorequest.data.local.dao.RewardDao
+import com.chorequest.data.local.dao.RewardRedemptionDao
 import com.chorequest.data.local.dao.UserDao
 import com.chorequest.data.local.entities.toDomain
 import com.chorequest.data.local.entities.toEntity
@@ -23,6 +24,7 @@ class SyncRepository @Inject constructor(
     private val api: ChoreQuestApi,
     private val choreDao: ChoreDao,
     private val rewardDao: RewardDao,
+    private val rewardRedemptionDao: RewardRedemptionDao,
     private val userDao: UserDao,
     private val activityLogDao: ActivityLogDao,
     private val authRepository: AuthRepository,
@@ -63,16 +65,10 @@ class SyncRepository @Inject constructor(
 
             Log.i(TAG, "Starting sync (forceSync=$forceSync)")
             
-            // Sync chores
-            syncChores(session.familyId)
+            // Sync multiple data types in a single batch request for better performance
+            syncBatchData(session.familyId)
             
-            // Sync rewards
-            syncRewards(session.familyId)
-            
-            // Sync users
-            syncUsers(session.familyId)
-            
-            // Sync activity logs
+            // Sync activity logs separately (they're large and append-only)
             syncActivityLogs(session.familyId)
 
             // Update timestamp only if sync actually ran
@@ -181,7 +177,127 @@ class SyncRepository @Inject constructor(
     }
 
     /**
-     * Syncs users from the server to local database
+     * Sync multiple data types in a single batch request for better performance
+     * This reduces HTTP calls from 3 separate requests to 1 batch request
+     */
+    private suspend fun syncBatchData(familyId: String) {
+        try {
+            Log.d(TAG, "Syncing batch data from backend (users, chores, rewards, reward_redemptions)...")
+            val response = api.getBatchData(
+                path = "batch",
+                action = "read",
+                types = "users,chores,rewards,reward_redemptions",
+                familyId = familyId
+            )
+            
+            if (response.isSuccessful && response.body()?.success == true) {
+                val batchData = response.body()?.data
+                val errors = response.body()?.errors
+                
+                if (errors != null && errors.isNotEmpty()) {
+                    Log.w(TAG, "Batch sync had some errors: $errors")
+                }
+                
+                if (batchData != null) {
+                    // Sync users
+                    batchData["users"]?.let { usersData ->
+                        try {
+                            val jsonString = gson.toJson(usersData)
+                            val usersResponse = gson.fromJson(jsonString, UsersData::class.java)
+                            val users = usersResponse.users ?: emptyList()
+                            
+                            // Don't delete all users - keep the current logged-in user
+                            // Just update/insert the synced users
+                            users.forEach { user ->
+                                val existing = userDao.getUserById(user.id)
+                                if (existing != null) {
+                                    userDao.updateUser(user.toEntity())
+                                } else {
+                                    userDao.insertUser(user.toEntity())
+                                }
+                            }
+                            Log.d(TAG, "Synced ${users.size} users from batch")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing users from batch", e)
+                        }
+                    }
+                    
+                    // Sync chores
+                    batchData["chores"]?.let { choresData ->
+                        try {
+                            val jsonString = gson.toJson(choresData)
+                            val choresResponse = gson.fromJson(jsonString, ChoresData::class.java)
+                            val chores = choresResponse.chores ?: emptyList()
+                            
+                            choreDao.deleteAllChores()
+                            if (chores.isNotEmpty()) {
+                                choreDao.insertChores(chores.map { it.toEntity() })
+                            }
+                            Log.d(TAG, "Synced ${chores.size} chores from batch")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing chores from batch", e)
+                        }
+                    }
+                    
+                    // Sync rewards
+                    batchData["rewards"]?.let { rewardsData ->
+                        try {
+                            val jsonString = gson.toJson(rewardsData)
+                            val rewardsResponse = gson.fromJson(jsonString, RewardsData::class.java)
+                            val rewards = rewardsResponse.rewards ?: emptyList()
+                            
+                            rewardDao.deleteAllRewards()
+                            if (rewards.isNotEmpty()) {
+                                rewardDao.insertRewards(rewards.map { it.toEntity() })
+                            }
+                            Log.d(TAG, "Synced ${rewards.size} rewards from batch")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing rewards from batch", e)
+                        }
+                    }
+                    
+                    // Sync reward redemptions
+                    batchData["reward_redemptions"]?.let { redemptionsData ->
+                        try {
+                            val jsonString = gson.toJson(redemptionsData)
+                            val redemptionsResponse = gson.fromJson(jsonString, RewardRedemptionsData::class.java)
+                            val redemptions = redemptionsResponse.redemptions ?: emptyList()
+                            
+                            rewardRedemptionDao.deleteAllRedemptions()
+                            if (redemptions.isNotEmpty()) {
+                                rewardRedemptionDao.insertRedemptions(redemptions.map { it.toEntity() })
+                            }
+                            Log.d(TAG, "Synced ${redemptions.size} reward redemptions from batch")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing reward redemptions from batch", e)
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "No batch data in response - falling back to individual syncs")
+                    // Fallback to individual syncs if batch data is null
+                    syncUsers(familyId)
+                    syncChores(familyId)
+                    syncRewards(familyId)
+                }
+            } else {
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "Failed to sync batch data from Drive: $errorBody - falling back to individual syncs")
+                // Fallback to individual syncs if batch fails
+                syncUsers(familyId)
+                syncChores(familyId)
+                syncRewards(familyId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing batch data from Drive, falling back to individual syncs", e)
+            // Fallback to individual syncs on exception
+            syncUsers(familyId)
+            syncChores(familyId)
+            syncRewards(familyId)
+        }
+    }
+
+    /**
+     * Syncs users from the server to local database (fallback method)
      */
     private suspend fun syncUsers(familyId: String) {
         try {

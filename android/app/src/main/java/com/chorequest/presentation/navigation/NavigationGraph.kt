@@ -23,6 +23,7 @@ import com.chorequest.presentation.activity.ActivityLogScreen
 import com.chorequest.presentation.settings.SettingsScreen
 import com.chorequest.presentation.profile.ProfileScreen
 import com.chorequest.presentation.games.GamesScreen
+import com.chorequest.presentation.games.TicTacToeScreen
 import com.chorequest.data.local.SessionManager
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -295,6 +296,15 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.Games.route) {
             GamesScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToTicTacToe = {
+                    navController.navigate(NavigationRoutes.TicTacToe.route)
+                }
+            )
+        }
+
+        composable(NavigationRoutes.TicTacToe.route) {
+            TicTacToeScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

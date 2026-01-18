@@ -98,22 +98,24 @@ class ChildDashboardViewModel @Inject constructor(
                     return@launch
                 }
 
-                // Fetch pending reward redemptions
-                val redemptionsResult = rewardRepository.getRewardRedemptions(session.userId)
-                val allRedemptions = when (redemptionsResult) {
-                    is com.chorequest.utils.Result.Success -> redemptionsResult.data
-                    else -> emptyList()
-                }
-                val pendingRedemptions = allRedemptions.filter { 
-                    it.status == RewardRedemptionStatus.PENDING 
+                // Use local redemptions Flow for real-time updates (local-first)
+                val localRedemptionsFlow = rewardRepository.getLocalRedemptions(session.userId)
+                
+                // Trigger background sync (non-blocking)
+                launch {
+                    rewardRepository.getRewardRedemptions(session.userId)
                 }
 
-                // Combine chores and user data flows to get real-time updates
+                // Combine chores, user data, and redemptions flows to get real-time updates
                 combine(
                     choreRepository.getAllChores(),
                     userRepository.getAllUsers(),
-                    rewardRepository.getAllRewards()
-                ) { allChores, allUsers, allRewards ->
+                    rewardRepository.getAllRewards(),
+                    localRedemptionsFlow
+                ) { allChores, allUsers, allRewards, allRedemptions ->
+                    val pendingRedemptions = allRedemptions.filter { 
+                        it.status == RewardRedemptionStatus.PENDING 
+                    }
                     // Find current user
                     val user = allUsers.find { it.id == session.userId }
                     val totalPoints = user?.pointsBalance ?: 0

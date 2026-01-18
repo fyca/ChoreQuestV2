@@ -129,13 +129,16 @@ data class Reward(
 data class RewardRedemption(
     val id: String,
     val userId: String,
+    val userName: String,
     val rewardId: String,
+    val rewardTitle: String,
     val status: RewardRedemptionStatus,
     val requestedAt: String,
     val approvedBy: String? = null,
     val approvedAt: String? = null,
     val deniedBy: String? = null,
     val deniedAt: String? = null,
+    val denialReason: String? = null,
     val completedAt: String? = null,
     val pointCost: Int
 )
@@ -352,6 +355,11 @@ data class ChoresData(
 
 data class RewardsData(
     val rewards: List<Reward>,
+    val metadata: SyncMetadata? = null
+)
+
+data class RewardRedemptionsData(
+    val redemptions: List<RewardRedemption>,
     val metadata: SyncMetadata? = null
 )
 

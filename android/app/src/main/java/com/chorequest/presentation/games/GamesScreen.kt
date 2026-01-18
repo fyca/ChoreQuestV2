@@ -29,7 +29,8 @@ import com.chorequest.presentation.theme.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GamesScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToTicTacToe: () -> Unit = {}
 ) {
     val games = remember {
         listOf(
@@ -149,7 +150,13 @@ fun GamesScreen(
                     GameCard(
                         game = game,
                         onClick = {
-                            // TODO: Navigate to game screen
+                            when (game.id) {
+                                "tic-tac-toe" -> onNavigateToTicTacToe()
+                                // TODO: Add navigation for other games
+                                else -> {
+                                    // Placeholder for other games
+                                }
+                            }
                         }
                     )
                 }

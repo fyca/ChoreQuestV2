@@ -18,7 +18,8 @@ import javax.inject.Inject
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val syncManager: SyncManager
+    private val syncManager: SyncManager,
+    private val syncRepository: com.chorequest.data.repository.SyncRepository
 ) : ViewModel() {
 
     private val _loginState = MutableStateFlow<LoginState>(LoginState.Initial)
@@ -86,6 +87,11 @@ class LoginViewModel @Inject constructor(
                         _loginState.value = LoginState.Success(result.data)
                         pendingGoogleToken = null // Clear pending token on success
                         pendingServerAuthCode = null // Clear server auth code on success
+                        
+                        // Set last sync time to now since all data has been loaded during login
+                        viewModelScope.launch {
+                            syncRepository.updateLastSyncTime(System.currentTimeMillis())
+                        }
                         
                         // Trigger immediate sync using SyncManager (won't be cancelled)
                         android.util.Log.d("LoginViewModel", "Triggering immediate sync after login...")

@@ -18,7 +18,8 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class QRScannerViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val syncRepository: com.chorequest.data.repository.SyncRepository
 ) : ViewModel() {
 
     private val _scannerState = MutableStateFlow<QRScannerState>(QRScannerState.Scanning)
@@ -77,6 +78,12 @@ class QRScannerViewModel @Inject constructor(
                 when (result) {
                     is Result.Success -> {
                         _scannerState.value = QRScannerState.Success(result.data)
+                        
+                        // Set last sync time to now since all data has been loaded during login
+                        viewModelScope.launch {
+                            syncRepository.updateLastSyncTime(System.currentTimeMillis())
+                        }
+                        
                         // Navigate based on user role
                         _navigationEvent.emit(
                             if (result.data.role == com.chorequest.domain.models.UserRole.PARENT) {

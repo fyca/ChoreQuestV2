@@ -362,21 +362,22 @@ function handleQRAuth(data) {
     Logger.log('Folder ID from QR code: ' + folderId);
     
     // IMPORTANT: With USER_DEPLOYING, we need to use the parent's access token to access their Drive
-    // Get the parent's access token from user properties using ownerEmail
-    const userProps = PropertiesService.getUserProperties();
-    const accessTokenKey = 'ACCESS_TOKEN_' + ownerEmail;
-    const accessToken = userProps.getProperty(accessTokenKey);
+    // Get a valid access token for the parent, refreshing if necessary
+    Logger.log('Getting valid access token for parent: ' + ownerEmail);
+    const accessToken = getValidAccessToken(ownerEmail);
     
     if (!accessToken) {
-      Logger.log('ERROR: No access token found for parent: ' + ownerEmail);
+      Logger.log('ERROR: Could not obtain valid access token for parent: ' + ownerEmail);
       Logger.log('NOTE: Parent must have logged in at least once to store their access token');
+      Logger.log('If parent has logged in before, the access token may have expired and refresh failed');
       return createResponse({ 
-        error: 'Parent access token not found. Parent must log in first.',
-        details: 'The parent account needs to authenticate with Google Sign-In before children can use QR codes.'
+        error: 'Parent access token not available. Parent must log in again.',
+        details: 'The parent account needs to authenticate with Google Sign-In. If they have logged in before, their access token may have expired. Please ask the parent to log in again to refresh their credentials.',
+        requiresParentLogin: true
       }, 403);
     }
     
-    Logger.log('Found access token for parent: ' + ownerEmail);
+    Logger.log('Obtained valid access token for parent: ' + ownerEmail);
     
     // Use Drive API v3 to load family and user data from parent's folder
     let familyData, usersData;
@@ -560,36 +561,53 @@ function validateSession(e) {
     const userProps = PropertiesService.getUserProperties();
     const allProps = userProps.getProperties();
     
-    // Try each stored access token until we find the user
+    // Collect all owner emails from stored tokens
+    const ownerEmails = [];
     for (const key in allProps) {
-      if (key.startsWith('ACCESS_TOKEN_')) {
-        const ownerEmail = key.replace('ACCESS_TOKEN_', '');
-        const accessToken = allProps[key];
-        
-        try {
-          const folderId = getChoreQuestFolderV3(ownerEmail, accessToken);
-          const usersData = loadJsonFileV3(FILE_NAMES.USERS, ownerEmail, folderId, accessToken);
-          
-          if (usersData && usersData.users) {
-            const user = usersData.users.find(u => u.id === userId);
-            
-            if (user) {
-              // Found the user, validate token
-              if (user.authToken !== token) {
-                return createResponse({ valid: false, reason: 'invalid_token' });
-              }
-              
-              if (user.tokenVersion !== tokenVersion) {
-                return createResponse({ valid: false, reason: 'token_regenerated' });
-              }
-              
-              return createResponse({ valid: true, userData: user });
-            }
-          }
-        } catch (error) {
-          // Continue to next token
-          continue;
+      if (key.startsWith('ACCESS_TOKEN_') || key.startsWith('REFRESH_TOKEN_')) {
+        const ownerEmail = key.replace('ACCESS_TOKEN_', '').replace('REFRESH_TOKEN_', '');
+        if (ownerEmails.indexOf(ownerEmail) === -1) {
+          ownerEmails.push(ownerEmail);
         }
+      }
+    }
+    
+    // Try each owner email until we find the user
+    for (let i = 0; i < ownerEmails.length; i++) {
+      const ownerEmail = ownerEmails[i];
+      
+      // Get a valid access token (will refresh if expired)
+      const accessToken = getValidAccessToken(ownerEmail);
+      
+      if (!accessToken) {
+        // Skip this owner if we can't get a valid token
+        continue;
+      }
+      
+      try {
+        const folderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+        const usersData = loadJsonFileV3(FILE_NAMES.USERS, ownerEmail, folderId, accessToken);
+        
+        if (usersData && usersData.users) {
+          const user = usersData.users.find(u => u.id === userId);
+          
+          if (user) {
+            // Found the user, validate token
+            if (user.authToken !== token) {
+              return createResponse({ valid: false, reason: 'invalid_token' });
+            }
+            
+            if (user.tokenVersion !== tokenVersion) {
+              return createResponse({ valid: false, reason: 'token_regenerated' });
+            }
+            
+            return createResponse({ valid: true, userData: user });
+          }
+        }
+      } catch (error) {
+        Logger.log('Error validating session for owner ' + ownerEmail + ': ' + error.toString());
+        // Continue to next owner
+        continue;
       }
     }
     
@@ -809,5 +827,177 @@ function exchangeServerAuthCodeForAccessToken(serverAuthCode, userEmail) {
   } catch (error) {
     Logger.log('ERROR in exchangeServerAuthCodeForAccessToken: ' + error.toString());
     throw error;
+  }
+}
+
+/**
+ * Refresh an access token using a refresh token
+ * @param {string} userEmail - User email to identify the refresh token
+ * @returns {string|null} New access token or null if refresh failed
+ */
+function refreshAccessToken(userEmail) {
+  try {
+    Logger.log('=== refreshAccessToken START ===');
+    Logger.log('User email: ' + userEmail);
+    
+    // Get refresh token from user properties
+    const userProps = PropertiesService.getUserProperties();
+    const refreshTokenKey = 'REFRESH_TOKEN_' + userEmail;
+    const refreshToken = userProps.getProperty(refreshTokenKey);
+    
+    if (!refreshToken) {
+      Logger.log('ERROR: No refresh token found for user: ' + userEmail);
+      return null;
+    }
+    
+    Logger.log('Refresh token found, attempting to refresh access token...');
+    
+    // Get OAuth client ID and secret from script properties
+    const scriptProps = PropertiesService.getScriptProperties();
+    const clientId = scriptProps.getProperty('OAUTH_CLIENT_ID');
+    const clientSecret = scriptProps.getProperty('OAUTH_CLIENT_SECRET');
+    
+    if (!clientId || !clientSecret) {
+      Logger.log('ERROR: OAuth client ID or secret not configured');
+      return null;
+    }
+    
+    // Refresh the access token
+    const tokenUrl = 'https://oauth2.googleapis.com/token';
+    const payload = {
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token'
+    };
+    
+    const options = {
+      method: 'post',
+      contentType: 'application/x-www-form-urlencoded',
+      payload: Object.keys(payload).map(key => key + '=' + encodeURIComponent(payload[key])).join('&'),
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(tokenUrl, options);
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    
+    Logger.log('Token refresh response code: ' + responseCode);
+    
+    if (responseCode !== 200) {
+      Logger.log('ERROR: Failed to refresh access token');
+      Logger.log('Response code: ' + responseCode);
+      Logger.log('Response text: ' + responseText);
+      
+      // If refresh token is invalid/expired, remove it
+      if (responseCode === 400) {
+        try {
+          const errorResponse = JSON.parse(responseText);
+          if (errorResponse.error === 'invalid_grant') {
+            Logger.log('Refresh token is invalid or expired, removing it');
+            userProps.deleteProperty(refreshTokenKey);
+            userProps.deleteProperty('ACCESS_TOKEN_' + userEmail);
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+      
+      return null;
+    }
+    
+    const tokenResponse = JSON.parse(responseText);
+    const newAccessToken = tokenResponse.access_token;
+    
+    if (!newAccessToken) {
+      Logger.log('ERROR: No access token in refresh response');
+      return null;
+    }
+    
+    Logger.log('Access token refreshed successfully');
+    
+    // Store the new access token
+    userProps.setProperty('ACCESS_TOKEN_' + userEmail, newAccessToken);
+    
+    // If a new refresh token is provided, store it (Google may issue a new one)
+    if (tokenResponse.refresh_token) {
+      userProps.setProperty(refreshTokenKey, tokenResponse.refresh_token);
+      Logger.log('New refresh token stored');
+    }
+    
+    return newAccessToken;
+  } catch (error) {
+    Logger.log('ERROR in refreshAccessToken: ' + error.toString());
+    Logger.log('Error stack: ' + (error.stack || 'no stack'));
+    return null;
+  }
+}
+
+/**
+ * Get a valid access token for a user, refreshing if necessary
+ * @param {string} userEmail - User email
+ * @returns {string|null} Valid access token or null if unavailable
+ */
+function getValidAccessToken(userEmail) {
+  try {
+    Logger.log('=== getValidAccessToken START ===');
+    Logger.log('User email: ' + userEmail);
+    
+    const userProps = PropertiesService.getUserProperties();
+    const accessTokenKey = 'ACCESS_TOKEN_' + userEmail;
+    let accessToken = userProps.getProperty(accessTokenKey);
+    
+    if (!accessToken) {
+      Logger.log('No access token found, attempting to refresh...');
+      accessToken = refreshAccessToken(userEmail);
+      if (!accessToken) {
+        Logger.log('Could not obtain access token');
+        return null;
+      }
+      return accessToken;
+    }
+    
+    // Try to use the existing token by making a test Drive API call
+    // If it fails with 401, refresh it
+    try {
+      // Make a lightweight Drive API call to verify token validity
+      const testUrl = 'https://www.googleapis.com/drive/v3/about?fields=user';
+      const testOptions = {
+        method: 'get',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken
+        },
+        muteHttpExceptions: true
+      };
+      
+      const testResponse = UrlFetchApp.fetch(testUrl, testOptions);
+      const testResponseCode = testResponse.getResponseCode();
+      
+      if (testResponseCode === 401) {
+        Logger.log('Access token expired, refreshing...');
+        accessToken = refreshAccessToken(userEmail);
+        if (!accessToken) {
+          Logger.log('Could not refresh access token');
+          return null;
+        }
+        return accessToken;
+      } else if (testResponseCode === 200) {
+        Logger.log('Access token is valid');
+        return accessToken;
+      } else {
+        Logger.log('Unexpected response code when testing token: ' + testResponseCode);
+        // Token might still be valid, return it
+        return accessToken;
+      }
+    } catch (error) {
+      Logger.log('Error testing access token: ' + error.toString());
+      // If test fails, try refreshing anyway
+      Logger.log('Attempting to refresh access token...');
+      accessToken = refreshAccessToken(userEmail);
+      return accessToken;
+    }
+  } catch (error) {
+    Logger.log('ERROR in getValidAccessToken: ' + error.toString());
+    return null;
   }
 }

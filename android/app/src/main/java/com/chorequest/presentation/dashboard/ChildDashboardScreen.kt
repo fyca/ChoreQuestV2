@@ -109,9 +109,6 @@ fun ChildDashboardScreen(
                     syncManager = viewModel.syncManager,
                     lastSyncTime = lastSyncTime,
                     onManualSync = { viewModel.triggerSync() },
-                    onViewMyChores = onNavigateToMyChores,
-                    onViewRewards = onNavigateToRewardsMarketplace,
-                    onPlayGames = onNavigateToGames,
                     onChoreClick = onNavigateToCompleteChore,
                     modifier = Modifier.padding(padding)
                 )
@@ -126,9 +123,6 @@ private fun ChildDashboardContent(
     syncManager: com.chorequest.workers.SyncManager,
     lastSyncTime: Long?,
     onManualSync: () -> Unit,
-    onViewMyChores: () -> Unit,
-    onViewRewards: () -> Unit,
-    onPlayGames: () -> Unit,
     onChoreClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -168,15 +162,6 @@ private fun ChildDashboardContent(
             ChildStatsCards(
                 pendingChores = state.pendingChoresCount,
                 completedToday = state.completedTodayCount
-            )
-        }
-
-        // Action buttons
-        item {
-            ChildActionButtons(
-                onViewMyChores = onViewMyChores,
-                onViewRewards = onViewRewards,
-                onPlayGames = onPlayGames
             )
         }
 

@@ -25,6 +25,16 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
   try {
     Logger.log('getChoreQuestFolderV3 called - Owner email: ' + ownerEmail);
     
+    // CRITICAL: Get a valid access token (refreshes if expired)
+    // This ensures tokens are always fresh, even if the Android app sends an expired token
+    let validAccessToken = getValidAccessToken(ownerEmail);
+    if (!validAccessToken) {
+      Logger.log('WARNING: getValidAccessToken returned null, falling back to provided accessToken');
+      validAccessToken = accessToken;
+    } else {
+      Logger.log('Using refreshed/valid access token from getValidAccessToken');
+    }
+    
     // Get current user for logging (with ME deployment, this will be the script owner)
     let currentUserEmail = null;
     try {
@@ -38,15 +48,15 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
       if (currentUserEmail !== ownerEmail) {
         Logger.log('NOTE: Script is running as ' + currentUserEmail + ' (script owner)');
         Logger.log('To access ' + ownerEmail + '\'s Drive, we MUST use an access token');
-        if (!accessToken) {
-          Logger.log('ERROR: No access token provided - cannot access user\'s Drive');
+        if (!validAccessToken) {
+          Logger.log('ERROR: No access token available - cannot access user\'s Drive');
           throw new Error('Access token required: Script runs as ' + currentUserEmail + ' but needs to access ' + ownerEmail + '\'s Drive. An OAuth access token must be provided.');
         }
       }
     } catch (e) {
       Logger.log('Could not get current user email: ' + e.toString());
       // If we can't get the current user, we still need an access token
-      if (!accessToken) {
+      if (!validAccessToken) {
         Logger.log('ERROR: No access token and cannot verify user context');
         throw new Error('Access token required: Cannot determine user context. An OAuth access token must be provided.');
       }
@@ -56,22 +66,22 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
     // CRITICAL: With ME deployment, we MUST use access token for all Drive API calls
     const query = "name='" + FOLDER_NAME + "' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents";
     Logger.log('Searching for folder with query: ' + query);
-    Logger.log('Using access token: ' + (accessToken ? 'yes (REQUIRED for ME deployment)' : 'no (will fail with ME deployment)'));
+    Logger.log('Using access token: ' + (validAccessToken ? 'yes (REQUIRED for ME deployment)' : 'no (will fail with ME deployment)'));
     
     // With ME deployment, access token is REQUIRED
-    if (!accessToken) {
+    if (!validAccessToken) {
       Logger.log('ERROR: Access token is required with ME deployment');
       throw new Error('Access token required: With ME deployment, an OAuth access token must be provided to access the user\'s Drive.');
     }
     
     let response;
-    if (accessToken) {
-      // Use access token for Drive API call
+    if (validAccessToken) {
+      // Use valid access token for Drive API call
       const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&spaces=drive&fields=files(id,name,owners)';
       const options = {
         method: 'get',
         headers: {
-          'Authorization': 'Bearer ' + accessToken
+          'Authorization': 'Bearer ' + validAccessToken
         },
         muteHttpExceptions: true
       };
@@ -151,13 +161,13 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
     };
     
     let newFolder;
-    if (accessToken) {
-      // Use access token for Drive API call
+    if (validAccessToken) {
+      // Use valid access token for Drive API call
       const url = 'https://www.googleapis.com/drive/v3/files';
       const options = {
         method: 'post',
         headers: {
-          'Authorization': 'Bearer ' + accessToken,
+          'Authorization': 'Bearer ' + validAccessToken,
           'Content-Type': 'application/json'
         },
         payload: JSON.stringify(folderMetadata),
@@ -221,6 +231,21 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
  */
 function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
   try {
+    // CRITICAL: Get a valid access token (refreshes if expired)
+    // This ensures tokens are always fresh, even if the Android app sends an expired token
+    let validAccessToken = null;
+    if (ownerEmail) {
+      validAccessToken = getValidAccessToken(ownerEmail);
+      if (!validAccessToken) {
+        Logger.log('WARNING: getValidAccessToken returned null, falling back to provided accessToken');
+        validAccessToken = accessToken;
+      } else {
+        Logger.log('Using refreshed/valid access token from getValidAccessToken');
+      }
+    } else {
+      validAccessToken = accessToken;
+    }
+    
     let targetFolderId;
     
     // If folderId is provided, use it directly (works for shared folders)
@@ -230,11 +255,11 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
     } else if (ownerEmail) {
       // Use ownerEmail to get folder
       Logger.log('Getting folder for owner: ' + ownerEmail);
-      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, validAccessToken);
     } else {
       // Use current user's folder
       Logger.log('Getting folder for current user');
-      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+      targetFolderId = getChoreQuestFolderV3(null, validAccessToken);
     }
     
     const jsonString = JSON.stringify(data, null, 2);
@@ -242,22 +267,22 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
     // Search for existing file
     const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";
     Logger.log('Searching for file with query: ' + query);
-    Logger.log('Using access token: ' + (accessToken ? 'yes (REQUIRED for ME deployment)' : 'no (will fail with ME deployment)'));
+    Logger.log('Using access token: ' + (validAccessToken ? 'yes (REQUIRED for ME deployment)' : 'no (will fail with ME deployment)'));
     
     // CRITICAL: With ME deployment, access token is REQUIRED
-    if (!accessToken) {
+    if (!validAccessToken) {
       Logger.log('ERROR: Access token is required with ME deployment');
       throw new Error('Access token required: With ME deployment, an OAuth access token must be provided to access the user\'s Drive.');
     }
     
     let fileListResponse;
-    if (accessToken) {
-      // Use access token for Drive API call
+    if (validAccessToken) {
+      // Use valid access token for Drive API call
       const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)';
       const options = {
         method: 'get',
         headers: {
-          'Authorization': 'Bearer ' + accessToken
+          'Authorization': 'Bearer ' + validAccessToken
         },
         muteHttpExceptions: true
       };
@@ -291,12 +316,12 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
           const duplicateFileId = fileListResponse.files[i].id;
           Logger.log('Deleting duplicate file: ' + duplicateFileId);
           try {
-            if (accessToken) {
+            if (validAccessToken) {
               const deleteUrl = 'https://www.googleapis.com/drive/v3/files/' + duplicateFileId;
               const deleteOptions = {
                 method: 'delete',
                 headers: {
-                  'Authorization': 'Bearer ' + accessToken
+                  'Authorization': 'Bearer ' + validAccessToken
                 },
                 muteHttpExceptions: true
               };
@@ -314,8 +339,8 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
       Logger.log('Updating existing file: ' + fileId);
       Logger.log('File content size: ' + jsonString.length + ' bytes');
       
-      if (accessToken) {
-        // Use access token to update file content
+      if (validAccessToken) {
+        // Use valid access token to update file content
         // Use uploadType=media for simpler content-only updates
         try {
           const url = 'https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media';
@@ -323,7 +348,7 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
           const options = {
             method: 'patch',
             headers: {
-              'Authorization': 'Bearer ' + accessToken,
+              'Authorization': 'Bearer ' + validAccessToken,
               'Content-Type': 'application/json'
             },
             payload: jsonString,
@@ -365,8 +390,8 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
       // Create new file
       Logger.log('Creating new file: ' + fileName);
       
-      if (accessToken) {
-        // Use access token to create file
+      if (validAccessToken) {
+        // Use valid access token to create file
         try {
           const blob = Utilities.newBlob(jsonString, 'application/json', fileName);
           const url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
@@ -389,7 +414,7 @@ function saveJsonFileV3(fileName, data, ownerEmail, folderId, accessToken) {
           const options = {
             method: 'post',
             headers: {
-              'Authorization': 'Bearer ' + accessToken,
+              'Authorization': 'Bearer ' + validAccessToken,
               'Content-Type': 'multipart/related; boundary=' + boundary
             },
             payload: payload,
@@ -455,27 +480,35 @@ function uploadImageV3(base64Data, fileName, mimeType, choreId, ownerEmail, acce
     throw new Error('ownerEmail is required');
   }
   
-  if (!accessToken) {
-    Logger.log('ERROR: accessToken is required for uploadImageV3');
-    throw new Error('Access token required: With ME deployment, an OAuth access token must be provided to access the user\'s Drive.');
-  }
-  
   try {
     Logger.log('uploadImageV3: Starting upload for owner: ' + ownerEmail);
     
+    // CRITICAL: Get a valid access token (refreshes if expired)
+    let validAccessToken = getValidAccessToken(ownerEmail);
+    if (!validAccessToken) {
+      Logger.log('WARNING: getValidAccessToken returned null, falling back to provided accessToken');
+      validAccessToken = accessToken;
+      if (!validAccessToken) {
+        Logger.log('ERROR: No access token available for uploadImageV3');
+        throw new Error('Access token required: With ME deployment, an OAuth access token must be provided to access the user\'s Drive.');
+      }
+    } else {
+      Logger.log('Using refreshed/valid access token from getValidAccessToken');
+    }
+    
     // Get or create ChoreQuest folder
-    const choreQuestFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+    const choreQuestFolderId = getChoreQuestFolderV3(ownerEmail, validAccessToken);
     Logger.log('uploadImageV3: Got ChoreQuest folder ID: ' + choreQuestFolderId);
     
     // Get or create Photos folder
     const photosFolderName = 'ChorePhotos';
-    let photosFolderId = getOrCreateFolderV3(photosFolderName, choreQuestFolderId, accessToken);
+    let photosFolderId = getOrCreateFolderV3(photosFolderName, choreQuestFolderId, validAccessToken);
     Logger.log('uploadImageV3: Got Photos folder ID: ' + photosFolderId);
     
     // Optionally organize by chore ID
     let targetFolderId = photosFolderId;
     if (choreId) {
-      targetFolderId = getOrCreateFolderV3(choreId, photosFolderId, accessToken);
+      targetFolderId = getOrCreateFolderV3(choreId, photosFolderId, validAccessToken);
       Logger.log('uploadImageV3: Got chore folder ID: ' + targetFolderId);
     }
     
@@ -518,7 +551,7 @@ function uploadImageV3(base64Data, fileName, mimeType, choreId, ownerEmail, acce
     const options = {
       method: 'post',
       headers: {
-        'Authorization': 'Bearer ' + accessToken,
+        'Authorization': 'Bearer ' + validAccessToken,
         'Content-Type': 'multipart/related; boundary=' + boundary
       },
       payload: allBytes,
@@ -545,7 +578,7 @@ function uploadImageV3(base64Data, fileName, mimeType, choreId, ownerEmail, acce
       const permissionsOptions = {
         method: 'post',
         headers: {
-          'Authorization': 'Bearer ' + accessToken,
+          'Authorization': 'Bearer ' + validAccessToken,
           'Content-Type': 'application/json'
         },
         payload: JSON.stringify({
@@ -607,6 +640,10 @@ function uploadImageV3(base64Data, fileName, mimeType, choreId, ownerEmail, acce
  */
 function getOrCreateFolderV3(folderName, parentFolderId, accessToken) {
   try {
+    // Note: This function is called from uploadImageV3 which already has a valid token
+    // We use the passed accessToken directly here since we don't have ownerEmail
+    const validAccessToken = accessToken;
+    
     // Search for existing folder
     const query = "name='" + folderName + "' and '" + parentFolderId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
     
@@ -614,7 +651,7 @@ function getOrCreateFolderV3(folderName, parentFolderId, accessToken) {
     const options = {
       method: 'get',
       headers: {
-        'Authorization': 'Bearer ' + accessToken
+        'Authorization': 'Bearer ' + validAccessToken
       },
       muteHttpExceptions: true
     };
@@ -636,7 +673,7 @@ function getOrCreateFolderV3(folderName, parentFolderId, accessToken) {
     const createOptions = {
       method: 'post',
       headers: {
-        'Authorization': 'Bearer ' + accessToken,
+        'Authorization': 'Bearer ' + validAccessToken,
         'Content-Type': 'application/json'
       },
       payload: JSON.stringify({
@@ -671,6 +708,21 @@ function getOrCreateFolderV3(folderName, parentFolderId, accessToken) {
  */
 function loadJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
   try {
+    // CRITICAL: Get a valid access token (refreshes if expired)
+    // This ensures tokens are always fresh, even if the Android app sends an expired token
+    let validAccessToken = null;
+    if (ownerEmail) {
+      validAccessToken = getValidAccessToken(ownerEmail);
+      if (!validAccessToken) {
+        Logger.log('WARNING: getValidAccessToken returned null, falling back to provided accessToken');
+        validAccessToken = accessToken;
+      } else {
+        Logger.log('Using refreshed/valid access token from getValidAccessToken');
+      }
+    } else {
+      validAccessToken = accessToken;
+    }
+    
     let targetFolderId;
     
     // If folderId is provided, use it directly (works for shared folders)
@@ -680,7 +732,7 @@ function loadJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
     } else if (ownerEmail) {
       // Use ownerEmail to get folder (REQUIRED to verify OAuth)
       Logger.log('Getting folder for owner: ' + ownerEmail);
-      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, validAccessToken);
     } else {
       // ownerEmail is required to verify OAuth is working
       Logger.log('ERROR: ownerEmail is required for loadJsonFileV3 when folderId is not provided');
@@ -690,16 +742,16 @@ function loadJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
     // Search for file
     const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";
     Logger.log('Searching for file with query: ' + query);
-    Logger.log('Using access token: ' + (accessToken ? 'yes' : 'no (using built-in Drive service)'));
+    Logger.log('Using access token: ' + (validAccessToken ? 'yes' : 'no (using built-in Drive service)'));
     
     let fileListResponse;
-    if (accessToken) {
-      // Use access token for Drive API call
+    if (validAccessToken) {
+      // Use valid access token for Drive API call
       const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)';
       const options = {
         method: 'get',
         headers: {
-          'Authorization': 'Bearer ' + accessToken
+          'Authorization': 'Bearer ' + validAccessToken
         },
         muteHttpExceptions: true
       };
@@ -729,14 +781,14 @@ function loadJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
       Logger.log('Found file: ' + fileId);
       
       // Get file content
-      if (accessToken) {
-        // Use access token to download file
+      if (validAccessToken) {
+        // Use valid access token to download file
         try {
           const downloadUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media';
           const options = {
             method: 'get',
             headers: {
-              'Authorization': 'Bearer ' + accessToken
+              'Authorization': 'Bearer ' + validAccessToken
             },
             muteHttpExceptions: true
           };
@@ -801,14 +853,25 @@ function loadJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
  */
 function getFileMetadataV3(fileName, ownerEmail, folderId, accessToken) {
   try {
+    // CRITICAL: Get a valid access token (refreshes if expired)
+    let validAccessToken = null;
+    if (ownerEmail) {
+      validAccessToken = getValidAccessToken(ownerEmail);
+      if (!validAccessToken) {
+        validAccessToken = accessToken;
+      }
+    } else {
+      validAccessToken = accessToken;
+    }
+    
     let targetFolderId;
     
     if (folderId) {
       targetFolderId = folderId;
     } else if (ownerEmail) {
-      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, validAccessToken);
     } else {
-      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+      targetFolderId = getChoreQuestFolderV3(null, validAccessToken);
     }
     
     const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";
@@ -842,14 +905,25 @@ function getFileMetadataV3(fileName, ownerEmail, folderId, accessToken) {
  */
 function getAllFileMetadataV3(ownerEmail, folderId, accessToken) {
   try {
+    // CRITICAL: Get a valid access token (refreshes if expired)
+    let validAccessToken = null;
+    if (ownerEmail) {
+      validAccessToken = getValidAccessToken(ownerEmail);
+      if (!validAccessToken) {
+        validAccessToken = accessToken;
+      }
+    } else {
+      validAccessToken = accessToken;
+    }
+    
     let targetFolderId;
     
     if (folderId) {
       targetFolderId = folderId;
     } else if (ownerEmail) {
-      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, validAccessToken);
     } else {
-      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+      targetFolderId = getChoreQuestFolderV3(null, validAccessToken);
     }
     
     const query = "'" + targetFolderId + "' in parents and trashed=false";
@@ -884,14 +958,25 @@ function getAllFileMetadataV3(ownerEmail, folderId, accessToken) {
  */
 function deleteJsonFileV3(fileName, ownerEmail, folderId, accessToken) {
   try {
+    // CRITICAL: Get a valid access token (refreshes if expired)
+    let validAccessToken = null;
+    if (ownerEmail) {
+      validAccessToken = getValidAccessToken(ownerEmail);
+      if (!validAccessToken) {
+        validAccessToken = accessToken;
+      }
+    } else {
+      validAccessToken = accessToken;
+    }
+    
     let targetFolderId;
     
     if (folderId) {
       targetFolderId = folderId;
     } else if (ownerEmail) {
-      targetFolderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+      targetFolderId = getChoreQuestFolderV3(ownerEmail, validAccessToken);
     } else {
-      targetFolderId = getChoreQuestFolderV3(null, accessToken);
+      targetFolderId = getChoreQuestFolderV3(null, validAccessToken);
     }
     
     const query = "name='" + fileName + "' and '" + targetFolderId + "' in parents and trashed=false";

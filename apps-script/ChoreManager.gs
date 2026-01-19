@@ -110,6 +110,8 @@ function handleChoresPost(e, data) {
     return verifyChore(data);
   } else if (action === 'delete') {
     return deleteChore(data);
+  } else if (action === 'delete_template') {
+    return deleteRecurringChoreTemplate(data);
   }
   
   return createResponse({ error: 'Invalid chores action' }, 400);
@@ -818,6 +820,85 @@ function deleteChore(data) {
     
   } catch (error) {
     Logger.log('Error in deleteChore: ' + error.toString());
+    return createResponse({ error: error.toString() }, 500);
+  }
+}
+
+/**
+ * Delete a recurring chore template
+ */
+function deleteRecurringChoreTemplate(data) {
+  try {
+    const { userId, templateId } = data;
+    
+    if (!userId || !templateId) {
+      return createResponse({ error: 'Missing required fields' }, 400);
+    }
+    
+    // Get ownerEmail, folderId, and accessToken from family data
+    const familyInfo = getFamilyInfo(userId);
+    if (!familyInfo) {
+      return createResponse({ error: 'Family data not found' }, 404);
+    }
+    
+    const { ownerEmail, folderId, accessToken } = familyInfo;
+    
+    const usersData = loadJsonFileV3(FILE_NAMES.USERS, ownerEmail, folderId, accessToken);
+    if (!usersData || !usersData.users) {
+      return createResponse({ error: 'Users data not found' }, 404);
+    }
+    
+    const templatesData = loadJsonFileV3(FILE_NAMES.RECURRING_CHORE_TEMPLATES, ownerEmail, folderId, accessToken);
+    if (!templatesData || !templatesData.templates) {
+      return createResponse({ error: 'Templates data not found' }, 404);
+    }
+    
+    // Verify user is authorized (must be parent)
+    const user = usersData.users.find(u => u.id === userId);
+    if (!user || user.role !== 'parent') {
+      return createResponse({ error: 'Unauthorized' }, 403);
+    }
+    
+    // Find and remove template
+    const templateIndex = templatesData.templates.findIndex(t => t.id === templateId);
+    if (templateIndex === -1) {
+      return createResponse({ error: 'Template not found' }, 404);
+    }
+    
+    const template = templatesData.templates[templateIndex];
+    templatesData.templates.splice(templateIndex, 1);
+    saveJsonFileV3(FILE_NAMES.RECURRING_CHORE_TEMPLATES, templatesData, ownerEmail, folderId, accessToken);
+    
+    // Also delete all chore instances created from this template
+    const choresData = loadJsonFileV3(FILE_NAMES.CHORES, ownerEmail, folderId, accessToken);
+    if (choresData && choresData.chores) {
+      const templateChores = choresData.chores.filter(c => c.templateId === templateId);
+      if (templateChores.length > 0) {
+        choresData.chores = choresData.chores.filter(c => c.templateId !== templateId);
+        saveJsonFileV3(FILE_NAMES.CHORES, choresData, ownerEmail, folderId, accessToken);
+      }
+    }
+    
+    // Log deletion
+    logActivity({
+      actorId: userId,
+      actorName: user.name,
+      actorRole: user.role,
+      actionType: 'recurring_chore_template_deleted',
+      referenceId: templateId,
+      referenceType: 'recurring_chore_template',
+      details: {
+        templateTitle: template.title
+      }
+    }, ownerEmail, folderId, accessToken);
+    
+    return createResponse({
+      success: true,
+      message: 'Recurring chore template deleted successfully'
+    });
+    
+  } catch (error) {
+    Logger.log('Error in deleteRecurringChoreTemplate: ' + error.toString());
     return createResponse({ error: error.toString() }, 500);
   }
 }

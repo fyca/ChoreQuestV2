@@ -51,11 +51,21 @@ class ChoreViewModel @Inject constructor(
     private val _uploadProgress = MutableStateFlow<UploadProgress>(UploadProgress.Idle)
     val uploadProgress: StateFlow<UploadProgress> = _uploadProgress.asStateFlow()
 
+    private val _recurringChoreTemplates = MutableStateFlow<List<ChoreTemplate>>(emptyList())
+    val recurringChoreTemplates: StateFlow<List<ChoreTemplate>> = _recurringChoreTemplates.asStateFlow()
+
+    private val _isLoadingTemplates = MutableStateFlow(false)
+    val isLoadingTemplates: StateFlow<Boolean> = _isLoadingTemplates.asStateFlow()
+
+    private val _isDeletingTemplate = MutableStateFlow(false)
+    val isDeletingTemplate: StateFlow<Boolean> = _isDeletingTemplate.asStateFlow()
+
     val currentUserId: String? 
         get() = sessionManager.loadSession()?.userId
 
     init {
         loadAllChores()
+        loadRecurringChoreTemplates()
     }
 
     /**
@@ -193,6 +203,50 @@ class ChoreViewModel @Inject constructor(
                     }
                     is Result.Loading -> {
                         // Keep current state during deletion
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Load recurring chore templates
+     */
+    fun loadRecurringChoreTemplates() {
+        viewModelScope.launch {
+            _isLoadingTemplates.value = true
+            try {
+                choreRepository.getRecurringChoreTemplates().collect { templates ->
+                    _recurringChoreTemplates.value = templates
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ChoreViewModel", "Error loading templates: ${e.message}", e)
+                _recurringChoreTemplates.value = emptyList()
+            } finally {
+                _isLoadingTemplates.value = false
+            }
+        }
+    }
+
+    /**
+     * Delete recurring chore template
+     */
+    fun deleteRecurringChoreTemplate(templateId: String) {
+        viewModelScope.launch {
+            _isDeletingTemplate.value = true
+            choreRepository.deleteRecurringChoreTemplate(templateId).collect { result ->
+                when (result) {
+                    is Result.Success -> {
+                        _isDeletingTemplate.value = false
+                        loadRecurringChoreTemplates() // Refresh list
+                    }
+                    is Result.Error -> {
+                        _isDeletingTemplate.value = false
+                        // TODO: Show error message
+                        android.util.Log.e("ChoreViewModel", "Failed to delete template: ${result.message}")
+                    }
+                    is Result.Loading -> {
+                        // Keep loading state
                     }
                 }
             }

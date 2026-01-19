@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -91,6 +92,9 @@ fun TicTacToeScreen(
             // Game board
             GameBoard(
                 board = uiState.gameState.board,
+                boardSize = uiState.gameState.boardSize,
+                isFlippingColumns = uiState.isFlippingColumns,
+                columnsToFlip = uiState.columnsToFlip,
                 onCellClick = { index ->
                     viewModel.onCellClick(index)
                 }
@@ -287,23 +291,30 @@ private fun DifficultySelectionDialog(
             Column {
                 DifficultyOption(
                     label = "Easy",
-                    description = "AI makes random moves - Easy to win!",
+                    description = "3x3 board - AI makes random moves - Easy to win!",
                     isSelected = currentDifficulty == "easy",
                     onClick = { onDifficultySelected("easy") }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 DifficultyOption(
                     label = "Medium",
-                    description = "AI makes some mistakes - Fair challenge",
+                    description = "4x4 board - AI makes some mistakes - Fair challenge",
                     isSelected = currentDifficulty == "medium",
                     onClick = { onDifficultySelected("medium") }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 DifficultyOption(
                     label = "Hard",
-                    description = "AI is unbeatable - Best you can do is draw!",
+                    description = "5x5 board - AI is unbeatable - Best you can do is draw!",
                     isSelected = currentDifficulty == "hard",
                     onClick = { onDifficultySelected("hard") }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                DifficultyOption(
+                    label = "Hard-Flip",
+                    description = "5x5 board - Columns flip randomly after each turn!",
+                    isSelected = currentDifficulty == "hard-flip",
+                    onClick = { onDifficultySelected("hard-flip") }
                 )
             }
         },
@@ -466,10 +477,36 @@ private fun ScoreDisplay(
 @Composable
 private fun GameBoard(
     board: Array<Player?>,
+    boardSize: Int,
+    isFlippingColumns: Boolean,
+    columnsToFlip: Set<Int>,
     onCellClick: (Int) -> Unit
 ) {
+    // Adjust board size based on boardSize (3x3 = 300dp, 4x4 = 360dp, 5x5 = 420dp)
+    val boardDimension = when (boardSize) {
+        3 -> 300.dp
+        4 -> 360.dp
+        5 -> 420.dp
+        else -> 300.dp
+    }
+    
+    // Animation for column flipping - single animation state shared across all columns
+    // Use a key to reset animation when flipping starts
+    val flipKey = remember(isFlippingColumns) { 
+        if (isFlippingColumns) kotlin.random.Random.nextInt() else 0 
+    }
+    
+    val flipRotation by animateFloatAsState(
+        targetValue = if (isFlippingColumns) 360f else 0f,
+        animationSpec = tween(
+            durationMillis = 800,
+            easing = FastOutSlowInEasing
+        ),
+        label = "flipRotation_$flipKey"
+    )
+    
     Card(
-        modifier = Modifier.size(300.dp),
+        modifier = Modifier.size(boardDimension),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -482,22 +519,37 @@ private fun GameBoard(
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            repeat(3) { row ->
+            repeat(boardSize) { row ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    repeat(3) { col ->
-                        val index = row * 3 + col
-                        GameCell(
-                            player = board[index],
-                            onClick = { onCellClick(index) },
+                    repeat(boardSize) { col ->
+                        val index = row * boardSize + col
+                        val isColumnFlipping = isFlippingColumns && columnsToFlip.contains(col)
+                        
+                        Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                        )
+                                .then(
+                                    if (isColumnFlipping) {
+                                        Modifier.rotate(flipRotation)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        ) {
+                            GameCell(
+                                player = board.getOrNull(index),
+                                onClick = { onCellClick(index) },
+                                modifier = Modifier
+                                    .fillMaxSize(),
+                                boardSize = boardSize
+                            )
+                        }
                     }
                 }
             }
@@ -509,7 +561,8 @@ private fun GameBoard(
 private fun GameCell(
     player: Player?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    boardSize: Int = 3
 ) {
     val scale by animateFloatAsState(
         targetValue = if (player != null) 1f else 0.8f,
@@ -518,6 +571,14 @@ private fun GameCell(
             stiffness = Spring.StiffnessHigh
         ), label = "cellScale"
     )
+
+    // Adjust font size based on board size
+    val fontSize = when (boardSize) {
+        3 -> 48.sp
+        4 -> 36.sp
+        5 -> 28.sp
+        else -> 48.sp
+    }
 
     Card(
         modifier = modifier
@@ -539,7 +600,7 @@ private fun GameCell(
                 Player.X -> {
                     Text(
                         text = "✕",
-                        fontSize = 48.sp,
+                        fontSize = fontSize,
                         color = Color(0xFF2196F3),
                         fontWeight = FontWeight.Bold
                     )
@@ -547,7 +608,7 @@ private fun GameCell(
                 Player.O -> {
                     Text(
                         text = "○",
-                        fontSize = 48.sp,
+                        fontSize = fontSize,
                         color = Color(0xFFF44336),
                         fontWeight = FontWeight.Bold
                     )
@@ -556,7 +617,7 @@ private fun GameCell(
                     // Empty cell
                     Text(
                         text = "",
-                        fontSize = 48.sp
+                        fontSize = fontSize
                     )
                 }
             }
@@ -570,17 +631,39 @@ enum class Player {
 }
 
 enum class Difficulty {
-    EASY, MEDIUM, HARD
+    EASY, MEDIUM, HARD, HARD_FLIP
+}
+
+// Helper function to get board size from difficulty
+fun getBoardSize(difficulty: Difficulty): Int {
+    return when (difficulty) {
+        Difficulty.EASY -> 3
+        Difficulty.MEDIUM -> 4
+        Difficulty.HARD -> 5
+        Difficulty.HARD_FLIP -> 5
+    }
+}
+
+fun getBoardSize(difficulty: String): Int {
+    return when (difficulty.lowercase()) {
+        "easy" -> 3
+        "medium" -> 4
+        "hard" -> 5
+        "hard-flip" -> 5
+        else -> 3
+    }
 }
 
 data class GameState(
-    val board: Array<Player?> = arrayOfNulls(9),
+    val boardSize: Int = 3,
+    val board: Array<Player?> = arrayOfNulls(boardSize * boardSize),
     val currentPlayer: Player = Player.X,
     val playerXScore: Int = 0,
     val playerOScore: Int = 0
 ) {
     fun makeMove(index: Int, player: Player): GameState {
-        if (board[index] != null || index < 0 || index >= 9) {
+        val boardSizeSquared = boardSize * boardSize
+        if (board[index] != null || index < 0 || index >= boardSizeSquared) {
             return this
         }
 
@@ -601,30 +684,60 @@ data class GameState(
 
     fun checkWinner(board: Array<Player?> = this.board): Player? {
         // Check rows
-        for (i in 0 until 3) {
-            val start = i * 3
-            if (board[start] != null &&
-                board[start] == board[start + 1] &&
-                board[start] == board[start + 2]) {
-                return board[start]
+        for (row in 0 until boardSize) {
+            val start = row * boardSize
+            val first = board[start]
+            if (first != null) {
+                var allMatch = true
+                for (col in 1 until boardSize) {
+                    if (board[start + col] != first) {
+                        allMatch = false
+                        break
+                    }
+                }
+                if (allMatch) return first
             }
         }
 
         // Check columns
-        for (i in 0 until 3) {
-            if (board[i] != null &&
-                board[i] == board[i + 3] &&
-                board[i] == board[i + 6]) {
-                return board[i]
+        for (col in 0 until boardSize) {
+            val first = board[col]
+            if (first != null) {
+                var allMatch = true
+                for (row in 1 until boardSize) {
+                    if (board[row * boardSize + col] != first) {
+                        allMatch = false
+                        break
+                    }
+                }
+                if (allMatch) return first
             }
         }
 
-        // Check diagonals
-        if (board[0] != null && board[0] == board[4] && board[0] == board[8]) {
-            return board[0]
+        // Check main diagonal (top-left to bottom-right)
+        val mainDiagFirst = board[0]
+        if (mainDiagFirst != null) {
+            var allMatch = true
+            for (i in 1 until boardSize) {
+                if (board[i * boardSize + i] != mainDiagFirst) {
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) return mainDiagFirst
         }
-        if (board[2] != null && board[2] == board[4] && board[2] == board[6]) {
-            return board[2]
+
+        // Check anti-diagonal (top-right to bottom-left)
+        val antiDiagFirst = board[boardSize - 1]
+        if (antiDiagFirst != null) {
+            var allMatch = true
+            for (i in 1 until boardSize) {
+                if (board[i * boardSize + (boardSize - 1 - i)] != antiDiagFirst) {
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) return antiDiagFirst
         }
 
         return null
@@ -638,6 +751,50 @@ data class GameState(
         return checkWinner() != null || isBoardFull()
     }
 
+    // Flip a column vertically (reverse the column - top becomes bottom)
+    fun flipColumn(columnIndex: Int): GameState {
+        if (columnIndex < 0 || columnIndex >= boardSize) return this
+        
+        val newBoard = board.copyOf()
+        val column = mutableListOf<Player?>()
+        
+        // Extract column from top to bottom
+        for (row in 0 until boardSize) {
+            val index = row * boardSize + columnIndex
+            column.add(newBoard[index])
+        }
+        
+        // Reverse the column (flip vertically)
+        column.reverse()
+        
+        // Put reversed column back
+        for (row in 0 until boardSize) {
+            val index = row * boardSize + columnIndex
+            newBoard[index] = column[row]
+        }
+        
+        return copy(board = newBoard)
+    }
+
+    // Flip multiple columns randomly
+    fun flipColumnsRandomly(): GameState {
+        var newState = this
+        val random = kotlin.random.Random
+        
+        // Flip each column a random number of times.
+        // Since a vertical flip is its own inverse, only the parity matters:
+        // - even flips => unchanged
+        // - odd flips  => flipped
+        for (col in 0 until boardSize) {
+            val flipCount = random.nextInt(0, 4) // 0..3
+            if (flipCount % 2 == 1) {
+                newState = newState.flipColumn(col)
+            }
+        }
+        
+        return newState
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -645,6 +802,7 @@ data class GameState(
         other as GameState
 
         if (!board.contentEquals(other.board)) return false
+        if (boardSize != other.boardSize) return false
         if (currentPlayer != other.currentPlayer) return false
         if (playerXScore != other.playerXScore) return false
         if (playerOScore != other.playerOScore) return false
@@ -654,6 +812,7 @@ data class GameState(
 
     override fun hashCode(): Int {
         var result = board.contentHashCode()
+        result = 31 * result + boardSize
         result = 31 * result + currentPlayer.hashCode()
         result = 31 * result + playerXScore
         result = 31 * result + playerOScore
@@ -662,11 +821,12 @@ data class GameState(
 }
 
 // AI logic with difficulty levels
-fun findBestMove(board: Array<Player?>, difficulty: Difficulty): Int {
+fun findBestMove(board: Array<Player?>, boardSize: Int, difficulty: Difficulty): Int {
     return when (difficulty) {
         Difficulty.EASY -> findRandomMove(board)
-        Difficulty.MEDIUM -> findMediumMove(board)
-        Difficulty.HARD -> findBestMoveHard(board)
+        Difficulty.MEDIUM -> findMediumMove(board, boardSize)
+        Difficulty.HARD -> findBestMoveHard(board, boardSize)
+        Difficulty.HARD_FLIP -> findBestMoveHard(board, boardSize) // Same as hard, columns will flip after
     }
 }
 
@@ -679,61 +839,218 @@ fun findRandomMove(board: Array<Player?>): Int {
     }
 }
 
-fun findMediumMove(board: Array<Player?>): Int {
-    // 70% chance to make best move, 30% chance to make random move
+fun findMediumMove(board: Array<Player?>, boardSize: Int): Int {
+    // For larger boards, use heuristic-based approach
+    if (boardSize > 3) {
+        // 70% chance to make smart move, 30% chance to make random move
+        return if (kotlin.random.Random.nextFloat() < 0.7f) {
+            findHeuristicMove(board, boardSize)
+        } else {
+            findRandomMove(board)
+        }
+    }
+    // For 3x3, use minimax with depth limit
     return if (kotlin.random.Random.nextFloat() < 0.7f) {
-        findBestMoveHard(board)
+        findBestMoveHard(board, boardSize)
     } else {
         findRandomMove(board)
     }
 }
 
-fun findBestMoveHard(board: Array<Player?>): Int {
-    var bestScore = Int.MIN_VALUE
-    var bestMove = -1
+fun findBestMoveHard(board: Array<Player?>, boardSize: Int): Int {
+    // For 3x3 boards, use full minimax
+    if (boardSize == 3) {
+        var bestScore = Int.MIN_VALUE
+        var bestMove = -1
 
+        for (i in board.indices) {
+            if (board[i] == null) {
+                board[i] = Player.O
+                val score = minimax(board, boardSize, 0, false, Int.MIN_VALUE, Int.MAX_VALUE, maxDepth = 9)
+                board[i] = null
+
+                if (score > bestScore) {
+                    bestScore = score
+                    bestMove = i
+                }
+            }
+        }
+
+        return bestMove
+    } else {
+        // For larger boards, use heuristic-based approach
+        return findHeuristicMove(board, boardSize)
+    }
+}
+
+// Heuristic-based move finder for larger boards (4x4, 5x5)
+fun findHeuristicMove(board: Array<Player?>, boardSize: Int): Int {
+    // 1. Check for winning move
     for (i in board.indices) {
         if (board[i] == null) {
             board[i] = Player.O
-            val score = minimax(board, 0, false)
+            val winner = GameState(boardSize = boardSize, board = board).checkWinner()
             board[i] = null
+            if (winner == Player.O) {
+                return i
+            }
+        }
+    }
 
+    // 2. Check for blocking move (prevent player from winning)
+    for (i in board.indices) {
+        if (board[i] == null) {
+            board[i] = Player.X
+            val winner = GameState(boardSize = boardSize, board = board).checkWinner()
+            board[i] = null
+            if (winner == Player.X) {
+                return i
+            }
+        }
+    }
+
+    // 3. Try to take center or strategic positions
+    val center = boardSize / 2
+    val centerIndex = center * boardSize + center
+    if (board.getOrNull(centerIndex) == null) {
+        return centerIndex
+    }
+
+    // 4. Try corners
+    val corners = listOf(
+        0, // top-left
+        boardSize - 1, // top-right
+        (boardSize - 1) * boardSize, // bottom-left
+        boardSize * boardSize - 1 // bottom-right
+    )
+    for (corner in corners) {
+        if (corner < board.size && board[corner] == null) {
+            return corner
+        }
+    }
+
+    // 5. Find move that creates longest line for AI
+    var bestMove = -1
+    var bestScore = -1
+    
+    for (i in board.indices) {
+        if (board[i] == null) {
+            val score = evaluateMove(board, boardSize, i, Player.O)
             if (score > bestScore) {
                 bestScore = score
                 bestMove = i
             }
         }
     }
-
-    return bestMove
+    
+    return if (bestMove != -1) bestMove else findRandomMove(board)
 }
 
-fun minimax(board: Array<Player?>, depth: Int, isMaximizing: Boolean): Int {
+// Evaluate how good a move is by counting potential lines
+fun evaluateMove(board: Array<Player?>, boardSize: Int, index: Int, player: Player): Int {
+    val row = index / boardSize
+    val col = index % boardSize
+    var score = 0
+    
+    // Count potential in row
+    var count = 1 // the move itself
+    for (c in 0 until boardSize) {
+        val idx = row * boardSize + c
+        if (idx != index && board.getOrNull(idx) == player) {
+            count++
+        }
+    }
+    score += count
+    
+    // Count potential in column
+    count = 1
+    for (r in 0 until boardSize) {
+        val idx = r * boardSize + col
+        if (idx != index && board.getOrNull(idx) == player) {
+            count++
+        }
+    }
+    score += count
+    
+    // Count potential in main diagonal
+    if (row == col) {
+        count = 1
+        for (i in 0 until boardSize) {
+            val idx = i * boardSize + i
+            if (idx != index && board.getOrNull(idx) == player) {
+                count++
+            }
+        }
+        score += count
+    }
+    
+    // Count potential in anti-diagonal
+    if (row + col == boardSize - 1) {
+        count = 1
+        for (i in 0 until boardSize) {
+            val idx = i * boardSize + (boardSize - 1 - i)
+            if (idx != index && board.getOrNull(idx) == player) {
+                count++
+            }
+        }
+        score += count
+    }
+    
+    return score
+}
+
+// Depth-limited minimax with alpha-beta pruning for 3x3 boards
+fun minimax(
+    board: Array<Player?>, 
+    boardSize: Int, 
+    depth: Int, 
+    isMaximizing: Boolean,
+    alpha: Int,
+    beta: Int,
+    maxDepth: Int = 9
+): Int {
     // Check for terminal states
-    val winner = GameState(board = board).checkWinner()
+    val winner = GameState(boardSize = boardSize, board = board).checkWinner()
     if (winner == Player.O) return 10 - depth // AI wins
     if (winner == Player.X) return depth - 10 // Player wins
     if (board.all { it != null }) return 0 // Draw
+    
+    // Depth limit to prevent infinite recursion
+    if (depth >= maxDepth) {
+        return 0 // Return neutral score at depth limit
+    }
 
     if (isMaximizing) {
         var bestScore = Int.MIN_VALUE
+        var currentAlpha = alpha
         for (i in board.indices) {
             if (board[i] == null) {
                 board[i] = Player.O
-                val score = minimax(board, depth + 1, false)
+                val score = minimax(board, boardSize, depth + 1, false, currentAlpha, beta, maxDepth)
                 board[i] = null
                 bestScore = maxOf(bestScore, score)
+                currentAlpha = maxOf(currentAlpha, bestScore)
+                // Alpha-beta pruning
+                if (beta <= currentAlpha) {
+                    break
+                }
             }
         }
         return bestScore
     } else {
         var bestScore = Int.MAX_VALUE
+        var currentBeta = beta
         for (i in board.indices) {
             if (board[i] == null) {
                 board[i] = Player.X
-                val score = minimax(board, depth + 1, true)
+                val score = minimax(board, boardSize, depth + 1, true, alpha, currentBeta, maxDepth)
                 board[i] = null
                 bestScore = minOf(bestScore, score)
+                currentBeta = minOf(currentBeta, bestScore)
+                // Alpha-beta pruning
+                if (currentBeta <= alpha) {
+                    break
+                }
             }
         }
         return bestScore

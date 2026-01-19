@@ -5,6 +5,7 @@ import com.chorequest.data.local.dao.*
 import com.chorequest.data.remote.ChoreQuestApi
 import com.chorequest.data.repository.AuthRepository
 import com.chorequest.data.repository.ChoreRepository
+import com.google.gson.Gson
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,8 +35,9 @@ object RepositoryModule {
     fun provideChoreRepository(
         api: ChoreQuestApi,
         choreDao: ChoreDao,
-        sessionManager: SessionManager
+        sessionManager: SessionManager,
+        gson: Gson
     ): ChoreRepository {
-        return ChoreRepository(api, choreDao, sessionManager)
+        return ChoreRepository(api, choreDao, sessionManager, gson)
     }
 }

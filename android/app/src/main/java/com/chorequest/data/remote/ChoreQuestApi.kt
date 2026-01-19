@@ -243,6 +243,13 @@ interface ChoreQuestApi {
     ): Response<ApiResponse<Unit>>
     
     @POST(".")
+    suspend fun deleteRecurringChoreTemplate(
+        @Query("path") path: String = "chores",
+        @Query("action") action: String = "delete_template",
+        @Body request: DeleteTemplateRequest
+    ): Response<ApiResponse<Unit>>
+    
+    @POST(".")
     suspend fun completeChore(
         @Query("path") path: String = "chores",
         @Query("action") action: String = "complete",

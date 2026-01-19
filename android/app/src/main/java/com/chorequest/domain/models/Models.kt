@@ -112,6 +112,22 @@ data class Subtask(
     val completedAt: String? = null
 )
 
+// Recurring Chore Template Model
+data class ChoreTemplate(
+    val id: String,
+    val title: String,
+    val description: String,
+    val assignedTo: List<String>,
+    val createdBy: String,
+    val pointValue: Int,
+    val dueDate: String? = null,
+    val recurring: RecurringSchedule,
+    val subtasks: List<Subtask>,
+    val createdAt: String,
+    val color: String? = null,
+    val icon: String? = null
+)
+
 // Reward Model
 data class Reward(
     val id: String,
@@ -371,5 +387,10 @@ data class TransactionsData(
 
 data class ActivityLogData(
     val logs: List<ActivityLog>,
+    val metadata: SyncMetadata? = null
+)
+
+data class TemplatesData(
+    val templates: List<ChoreTemplate>? = null,
     val metadata: SyncMetadata? = null
 )

@@ -23,6 +23,8 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_MEMORY_MATCH_BEST_TIME = "memory_match_best_time"
         private const val KEY_MEMORY_MATCH_BEST_MOVES = "memory_match_best_moves"
         private const val KEY_MEMORY_MATCH_DIFFICULTY = "memory_match_difficulty"
+        private const val KEY_ROCK_PAPER_SCISSORS_HIGH_SCORE = "rock_paper_scissors_high_score"
+        private const val KEY_ROCK_PAPER_SCISSORS_DIFFICULTY = "rock_paper_scissors_difficulty"
         private const val KEY_SOUND_ENABLED = "sound_enabled"
     }
 
@@ -87,6 +89,24 @@ class GamePreferencesManager @Inject constructor(
 
     fun saveMemoryMatchDifficulty(difficulty: String) {
         sharedPreferences.edit().putString(KEY_MEMORY_MATCH_DIFFICULTY, difficulty).apply()
+    }
+
+    // Rock Paper Scissors High Score
+    fun getRockPaperScissorsHighScore(): Int {
+        return sharedPreferences.getInt(KEY_ROCK_PAPER_SCISSORS_HIGH_SCORE, 0)
+    }
+
+    fun saveRockPaperScissorsHighScore(score: Int) {
+        sharedPreferences.edit().putInt(KEY_ROCK_PAPER_SCISSORS_HIGH_SCORE, score).apply()
+    }
+
+    // Rock Paper Scissors Difficulty
+    fun getRockPaperScissorsDifficulty(): String {
+        return sharedPreferences.getString(KEY_ROCK_PAPER_SCISSORS_DIFFICULTY, "medium") ?: "medium"
+    }
+
+    fun saveRockPaperScissorsDifficulty(difficulty: String) {
+        sharedPreferences.edit().putString(KEY_ROCK_PAPER_SCISSORS_DIFFICULTY, difficulty).apply()
     }
 
     // Sound Effects

@@ -153,7 +153,11 @@ class ParentDashboardViewModel @Inject constructor(
                         completedChoresCount = completedChores.size + verifiedChores.size,
                         awaitingVerificationCount = completedChores.size,
                         totalFamilyPoints = totalFamilyPoints,
-                        recentChores = chores.take(5),
+                        activeChores = pendingChores.sortedByDescending { it.createdAt },
+                        awaitingApprovalChores = completedChores.sortedByDescending { it.completedAt ?: it.createdAt },
+                        completedChores = (completedChores + verifiedChores).sortedByDescending { 
+                            it.completedAt ?: it.verifiedAt ?: it.createdAt 
+                        },
                         pendingRewards = pendingRewardsWithDetails
                     )
                 }.collect { state ->
@@ -266,7 +270,9 @@ sealed class ParentDashboardState {
         val completedChoresCount: Int,
         val awaitingVerificationCount: Int,
         val totalFamilyPoints: Int,
-        val recentChores: List<Chore>,
+        val activeChores: List<Chore> = emptyList(),
+        val awaitingApprovalChores: List<Chore> = emptyList(),
+        val completedChores: List<Chore> = emptyList(),
         val pendingRewards: List<Triple<RewardRedemption, com.chorequest.domain.models.Reward, User>> = emptyList() // Pending reward redemptions with details
     ) : ParentDashboardState()
     data class Error(val message: String) : ParentDashboardState()

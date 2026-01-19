@@ -29,6 +29,7 @@ sealed class NavigationRoutes(val route: String) {
     object VerifyChore : NavigationRoutes("verify_chore/{choreId}") {
         fun createRoute(choreId: String) = "verify_chore/$choreId"
     }
+    object RecurringChoreEditor : NavigationRoutes("recurring_chore_editor")
     
     // Rewards
     object RewardList : NavigationRoutes("reward_list")
@@ -62,4 +63,5 @@ sealed class NavigationRoutes(val route: String) {
     object TicTacToe : NavigationRoutes("tic_tac_toe")
     object ChoreQuiz : NavigationRoutes("chore_quiz")
     object MemoryMatch : NavigationRoutes("memory_match")
+    object RockPaperScissors : NavigationRoutes("rock_paper_scissors")
 }

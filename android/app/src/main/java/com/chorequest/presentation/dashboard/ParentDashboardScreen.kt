@@ -38,6 +38,7 @@ fun ParentDashboardScreen(
     onNavigateToLogin: () -> Unit,
     onNavigateToChoreDetail: (String) -> Unit = {},
     onNavigateToCompleteChore: (String) -> Unit = {},
+    onNavigateToCreateChore: () -> Unit = {},
     viewModel: ParentDashboardViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -107,7 +108,7 @@ fun ParentDashboardScreen(
                     syncManager = viewModel.syncManager,
                     lastSyncTime = lastSyncTime,
                     onManualSync = { viewModel.triggerSync() },
-                    onCreateChore = onNavigateToChoreList,
+                    onCreateChore = onNavigateToCreateChore,
                     onCreateReward = onNavigateToRewardList,
                     onViewActivity = onNavigateToActivityLog,
                     onChoreClick = onNavigateToChoreDetail,
@@ -196,29 +197,51 @@ private fun ParentDashboardContent(
             }
         }
 
-        // Recent activity
+        // Chores Waiting for Verification section
+        if (state.awaitingApprovalChores.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Waiting for Verification",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+            
+            items(state.awaitingApprovalChores) { chore ->
+                ChorePreviewCard(
+                    chore = chore,
+                    isAssignedToMe = currentUserId?.let { chore.assignedTo.contains(it) } ?: false,
+                    onClick = { onChoreClick(chore.id) },
+                    onCompleteClick = null
+                )
+            }
+        }
+
+        // Active Chores section
         item {
             Text(
-                text = "Recent Chores",
+                text = "Active Chores",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
         }
 
-        // Recent chores list (with assigned to me highlighted)
-        if (state.recentChores.isEmpty()) {
+        // Active chores list (with assigned to me highlighted)
+        if (state.activeChores.isEmpty()) {
             item {
                 EmptyState(
                     icon = Icons.Default.Assignment,
-                    title = "No Chores Yet",
+                    title = "No Active Chores",
                     message = "Create your first chore to get started!",
                     actionLabel = "Create Chore",
                     onAction = onCreateChore
                 )
             }
         } else {
-            items(state.recentChores) { chore ->
+            items(state.activeChores) { chore ->
                 ChorePreviewCard(
                     chore = chore,
                     isAssignedToMe = currentUserId?.let { chore.assignedTo.contains(it) } ?: false,
@@ -229,6 +252,7 @@ private fun ParentDashboardContent(
                 )
             }
         }
+
     }
 }
 

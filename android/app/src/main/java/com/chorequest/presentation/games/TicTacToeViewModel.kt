@@ -6,10 +6,12 @@ import com.chorequest.data.local.GamePreferencesManager
 import com.chorequest.utils.SoundManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class TicTacToeUiState(
@@ -20,7 +22,9 @@ data class TicTacToeUiState(
     val showCelebration: Boolean = false,
     val difficulty: String = "medium",
     val highScore: Int = 0,
-    val soundEnabled: Boolean = true
+    val soundEnabled: Boolean = true,
+    val isFlippingColumns: Boolean = false,
+    val columnsToFlip: Set<Int> = emptySet()
 )
 
 @HiltViewModel
@@ -31,6 +35,9 @@ class TicTacToeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(
         TicTacToeUiState(
+            gameState = GameState(
+                boardSize = getBoardSize(gamePreferencesManager.getTicTacToeDifficulty())
+            ),
             difficulty = gamePreferencesManager.getTicTacToeDifficulty(),
             highScore = gamePreferencesManager.getTicTacToeHighScore(),
             soundEnabled = gamePreferencesManager.isSoundEnabled()
@@ -50,18 +57,49 @@ class TicTacToeViewModel @Inject constructor(
                         "easy" -> Difficulty.EASY
                         "medium" -> Difficulty.MEDIUM
                         "hard" -> Difficulty.HARD
+                        "hard-flip" -> Difficulty.HARD_FLIP
                         else -> Difficulty.MEDIUM
                     }
                     
-                    val aiMove = findBestMove(currentState.gameState.board, difficulty)
+                    // Calculate AI move on background thread to avoid blocking UI
+                    val aiMove = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        findBestMove(
+                            currentState.gameState.board.copyOf(), // Copy to avoid mutation
+                            currentState.gameState.boardSize,
+                            difficulty
+                        )
+                    }
+                    
                     if (aiMove != -1) {
-                        val newState = currentState.gameState.makeMove(aiMove, Player.O)
+                        var newState = currentState.gameState.makeMove(aiMove, Player.O)
                         soundManager.playSound(SoundManager.SoundType.MOVE)
                         
-                        _uiState.value = currentState.copy(
-                            gameState = newState,
-                            isAITurn = false
-                        )
+                        // If hard-flip mode, flip columns after AI move
+                        if (currentState.difficulty == "hard-flip") {
+                            val columnsToFlip = (0 until newState.boardSize).toSet()
+                            _uiState.value = currentState.copy(
+                                gameState = newState,
+                                isAITurn = false,
+                                isFlippingColumns = true,
+                                columnsToFlip = columnsToFlip
+                            )
+                            
+                            // Wait for animation, then flip
+                            delay(800) // Animation duration
+                            newState = newState.flipColumnsRandomly()
+                            val updatedState = _uiState.value
+                            _uiState.value = updatedState.copy(
+                                gameState = newState,
+                                isAITurn = false,
+                                isFlippingColumns = false,
+                                columnsToFlip = emptySet()
+                            )
+                        } else {
+                            _uiState.value = currentState.copy(
+                                gameState = newState,
+                                isAITurn = false
+                            )
+                        }
                         
                         // Check for game end after AI move
                         checkGameEnd(newState)
@@ -82,33 +120,80 @@ class TicTacToeViewModel @Inject constructor(
             return
         }
 
-        val newState = currentState.gameState.makeMove(index, Player.X)
+        var newState = currentState.gameState.makeMove(index, Player.X)
         soundManager.playSound(SoundManager.SoundType.CLICK)
         
-        _uiState.value = currentState.copy(gameState = newState)
-        
-        // Check for win or draw
-        val winner = newState.checkWinner()
-        if (winner == Player.X) {
-            soundManager.playSound(SoundManager.SoundType.WIN)
+        // If hard-flip mode, flip columns after player move
+        if (currentState.difficulty == "hard-flip") {
+            val columnsToFlip = (0 until newState.boardSize).toSet()
             _uiState.value = currentState.copy(
                 gameState = newState,
-                showWinDialog = true,
-                showCelebration = true
+                isFlippingColumns = true,
+                columnsToFlip = columnsToFlip
             )
-            updateHighScore(newState.playerXScore)
-        } else if (newState.isBoardFull()) {
-            soundManager.playSound(SoundManager.SoundType.DRAW)
-            _uiState.value = currentState.copy(
-                gameState = newState,
-                showDrawDialog = true
-            )
+            
+            // Wait for animation, then flip
+            viewModelScope.launch {
+                delay(800) // Animation duration
+                newState = newState.flipColumnsRandomly()
+                val latestState = _uiState.value
+                
+                // Check for win or draw after flip
+                val winner = newState.checkWinner()
+                if (winner == Player.X) {
+                    soundManager.playSound(SoundManager.SoundType.WIN)
+                    _uiState.value = latestState.copy(
+                        gameState = newState,
+                        showWinDialog = true,
+                        showCelebration = true,
+                        isFlippingColumns = false,
+                        columnsToFlip = emptySet()
+                    )
+                    updateHighScore(newState.playerXScore)
+                } else if (newState.isBoardFull()) {
+                    soundManager.playSound(SoundManager.SoundType.DRAW)
+                    _uiState.value = latestState.copy(
+                        gameState = newState,
+                        showDrawDialog = true,
+                        isFlippingColumns = false,
+                        columnsToFlip = emptySet()
+                    )
+                } else {
+                    // AI's turn
+                    _uiState.value = latestState.copy(
+                        gameState = newState,
+                        isAITurn = true,
+                        isFlippingColumns = false,
+                        columnsToFlip = emptySet()
+                    )
+                }
+            }
         } else {
-            // AI's turn
-            _uiState.value = currentState.copy(
-                gameState = newState,
-                isAITurn = true
-            )
+            _uiState.value = currentState.copy(gameState = newState)
+            
+            // Check for win or draw
+            val winner = newState.checkWinner()
+            if (winner == Player.X) {
+                soundManager.playSound(SoundManager.SoundType.WIN)
+                _uiState.value = currentState.copy(
+                    gameState = newState,
+                    showWinDialog = true,
+                    showCelebration = true
+                )
+                updateHighScore(newState.playerXScore)
+            } else if (newState.isBoardFull()) {
+                soundManager.playSound(SoundManager.SoundType.DRAW)
+                _uiState.value = currentState.copy(
+                    gameState = newState,
+                    showDrawDialog = true
+                )
+            } else {
+                // AI's turn
+                _uiState.value = currentState.copy(
+                    gameState = newState,
+                    isAITurn = true
+                )
+            }
         }
     }
 
@@ -131,24 +216,35 @@ class TicTacToeViewModel @Inject constructor(
 
     fun newGame() {
         val currentState = _uiState.value
+        val boardSize = getBoardSize(currentState.difficulty)
         _uiState.value = currentState.copy(
             gameState = GameState(
+                board = arrayOfNulls(boardSize * boardSize),
+                boardSize = boardSize,
                 playerXScore = currentState.gameState.playerXScore,
                 playerOScore = currentState.gameState.playerOScore
             ),
             showWinDialog = false,
             showDrawDialog = false,
-            isAITurn = false
+            isAITurn = false,
+            isFlippingColumns = false,
+            columnsToFlip = emptySet()
         )
     }
 
     fun resetScore() {
         val currentState = _uiState.value
+        val boardSize = currentState.gameState.boardSize
         _uiState.value = currentState.copy(
-            gameState = GameState(),
+            gameState = GameState(
+                board = arrayOfNulls(boardSize * boardSize),
+                boardSize = boardSize
+            ),
             showWinDialog = false,
             showDrawDialog = false,
-            isAITurn = false
+            isAITurn = false,
+            isFlippingColumns = false,
+            columnsToFlip = emptySet()
         )
     }
 
@@ -166,8 +262,22 @@ class TicTacToeViewModel @Inject constructor(
 
     fun setDifficulty(difficulty: String) {
         gamePreferencesManager.saveTicTacToeDifficulty(difficulty)
-        _uiState.value = _uiState.value.copy(difficulty = difficulty)
-        newGame() // Start new game with new difficulty
+        val currentState = _uiState.value
+        val boardSize = getBoardSize(difficulty)
+        _uiState.value = currentState.copy(
+            difficulty = difficulty,
+            gameState = GameState(
+                board = arrayOfNulls(boardSize * boardSize),
+                boardSize = boardSize,
+                playerXScore = currentState.gameState.playerXScore,
+                playerOScore = currentState.gameState.playerOScore
+            ),
+            showWinDialog = false,
+            showDrawDialog = false,
+            isAITurn = false,
+            isFlippingColumns = false,
+            columnsToFlip = emptySet()
+        )
     }
 
     fun setSoundEnabled(enabled: Boolean) {

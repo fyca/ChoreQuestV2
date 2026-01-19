@@ -7,7 +7,11 @@ import com.chorequest.data.local.entities.toEntity
 import com.chorequest.data.local.entities.toDomain
 import com.chorequest.data.remote.*
 import com.chorequest.domain.models.Chore
+import com.chorequest.domain.models.ChoreTemplate
+import com.chorequest.domain.models.TemplatesData
 import com.chorequest.utils.Result
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -18,7 +22,8 @@ import javax.inject.Singleton
 class ChoreRepository @Inject constructor(
     private val api: ChoreQuestApi,
     private val choreDao: ChoreDao,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val gson: Gson
 ) {
     companion object {
         private const val TAG = "ChoreRepository"
@@ -402,4 +407,121 @@ class ChoreRepository @Inject constructor(
             Log.e(TAG, "Error fetching debug logs", e)
         }
     }
+
+    /**
+     * Get recurring chore templates
+     */
+    fun getRecurringChoreTemplates(): Flow<List<ChoreTemplate>> = flow {
+        try {
+            val session = sessionManager.loadSession()
+            if (session == null) {
+                Log.w(TAG, "No session found for fetching templates")
+                emit(emptyList())
+                return@flow
+            }
+
+            Log.d(TAG, "Fetching recurring chore templates for family: ${session.familyId}")
+            val response = api.getData(
+                path = "data",
+                action = "get",
+                type = "recurring_chore_templates",
+                familyId = session.familyId
+            )
+
+            Log.d(TAG, "Template fetch response - Success: ${response.isSuccessful}, Code: ${response.code()}")
+            
+            if (response.isSuccessful && response.body()?.success == true) {
+                val data = response.body()?.data
+                Log.d(TAG, "Template data received: ${data != null}")
+                
+                if (data != null) {
+                    try {
+                        val jsonString = gson.toJson(data)
+                        Log.d(TAG, "Template JSON string length: ${jsonString.length}")
+                        val templatesData = gson.fromJson(jsonString, TemplatesData::class.java)
+                        val templates = templatesData.templates ?: emptyList()
+                        Log.d(TAG, "Parsed ${templates.size} templates")
+                        emit(templates)
+                    } catch (parseError: Exception) {
+                        Log.e(TAG, "Error parsing templates data", parseError)
+                        Log.e(TAG, "Data structure: ${gson.toJson(data)}")
+                        emit(emptyList())
+                    }
+                } else {
+                    Log.w(TAG, "No data in response body")
+                    emit(emptyList())
+                }
+            } else {
+                val errorBody = response.body()
+                val errorMsg = errorBody?.error ?: errorBody?.message ?: "Unknown error"
+                Log.e(TAG, "Failed to fetch templates: $errorMsg")
+                Log.e(TAG, "Response code: ${response.code()}, Body: ${errorBody}")
+                emit(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching templates", e)
+            emit(emptyList())
+        }
+    }
+
+    /**
+     * Delete recurring chore template
+     */
+    fun deleteRecurringChoreTemplate(templateId: String): Flow<Result<Unit>> = flow {
+        emit(Result.Loading)
+        try {
+            val session = sessionManager.loadSession()
+            if (session == null) {
+                emit(Result.Error("No active session"))
+                return@flow
+            }
+
+            // Delete from Drive FIRST (Drive is source of truth)
+            val request = DeleteTemplateRequest(
+                userId = session.userId,
+                templateId = templateId
+            )
+
+            val response = api.deleteRecurringChoreTemplate(request = request)
+            
+            // Check for authorization error (401 status code)
+            if (!response.isSuccessful && response.code() == 401) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+                Log.e(TAG, "Authorization required: $errorMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+                return@flow
+            }
+            
+            if (response.isSuccessful && response.body()?.success == true) {
+                Log.d(TAG, "Template deleted successfully on Drive: $templateId")
+                emit(Result.Success(Unit))
+            } else {
+                val errorBody = response.body()
+                val errorMsg = errorBody?.error 
+                    ?: errorBody?.message 
+                    ?: response.message() 
+                    ?: "Failed to delete template on Drive"
+                
+                // Check if error message indicates authorization is needed
+                if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+                } else {
+                    Log.e(TAG, "Failed to delete template on Drive: $errorMsg")
+                    emit(Result.Error("Failed to delete template from Drive: $errorMsg"))
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Re-throw cancellation exceptions - they should propagate up
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting template", e)
+            emit(Result.Error(e.message ?: "Failed to delete template"))
+        }
+    }
 }
+

@@ -17,6 +17,7 @@ import com.chorequest.presentation.auth.QRScannerScreen
 import com.chorequest.presentation.dashboard.ParentDashboardScreen
 import com.chorequest.presentation.dashboard.ChildDashboardScreen
 import com.chorequest.presentation.chores.*
+import com.chorequest.presentation.chores.RecurringChoreEditorScreen
 import com.chorequest.presentation.rewards.*
 import com.chorequest.presentation.users.*
 import com.chorequest.presentation.activity.ActivityLogScreen
@@ -26,6 +27,7 @@ import com.chorequest.presentation.games.GamesScreen
 import com.chorequest.presentation.games.TicTacToeScreen
 import com.chorequest.presentation.games.ChoreQuizScreen
 import com.chorequest.presentation.games.MemoryMatchScreen
+import com.chorequest.presentation.games.RockPaperScissorsScreen
 import com.chorequest.data.local.SessionManager
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -106,6 +108,9 @@ fun NavigationGraph(
                 },
                 onNavigateToCompleteChore = { choreId ->
                     navController.navigate(NavigationRoutes.CompleteChore.createRoute(choreId))
+                },
+                onNavigateToCreateChore = {
+                    navController.navigate(NavigationRoutes.CreateChore.route)
                 }
             )
         }
@@ -145,6 +150,9 @@ fun NavigationGraph(
                 },
                 onNavigateToChoreDetail = { choreId ->
                     navController.navigate(NavigationRoutes.ChoreDetail.createRoute(choreId))
+                },
+                onNavigateToRecurringChoreEditor = {
+                    navController.navigate(NavigationRoutes.RecurringChoreEditor.route)
                 }
             )
         }
@@ -197,6 +205,15 @@ fun NavigationGraph(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToCompleteChore = { choreId ->
                     navController.navigate(NavigationRoutes.CompleteChore.createRoute(choreId))
+                }
+            )
+        }
+
+        composable(NavigationRoutes.RecurringChoreEditor.route) {
+            RecurringChoreEditorScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToEditChore = { choreId ->
+                    navController.navigate(NavigationRoutes.EditChore.createRoute(choreId))
                 }
             )
         }
@@ -307,6 +324,9 @@ fun NavigationGraph(
                 },
                 onNavigateToMemoryMatch = {
                     navController.navigate(NavigationRoutes.MemoryMatch.route)
+                },
+                onNavigateToRockPaperScissors = {
+                    navController.navigate(NavigationRoutes.RockPaperScissors.route)
                 }
             )
         }
@@ -325,6 +345,12 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.MemoryMatch.route) {
             MemoryMatchScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavigationRoutes.RockPaperScissors.route) {
+            RockPaperScissorsScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

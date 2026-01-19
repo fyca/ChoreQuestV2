@@ -28,6 +28,7 @@ fun ChoreListScreen(
     onNavigateBack: () -> Unit,
     onNavigateToCreateChore: () -> Unit,
     onNavigateToChoreDetail: (String) -> Unit,
+    onNavigateToRecurringChoreEditor: () -> Unit = {},
     viewModel: ChoreViewModel = hiltViewModel()
 ) {
     val allChores by viewModel.allChores.collectAsState()
@@ -77,6 +78,27 @@ fun ChoreListScreen(
                 )
             )
 
+            // Edit Recurring Chores button
+            Button(
+                onClick = onNavigateToRecurringChoreEditor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Repeat,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Edit Recurring Chores",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
             // Chore list
             if (filteredChores.isEmpty()) {
                 EmptyState(
@@ -85,7 +107,7 @@ fun ChoreListScreen(
                         ChoreFilter.ALL -> "No Chores Yet"
                         ChoreFilter.PENDING -> "No Pending Chores"
                         ChoreFilter.COMPLETED -> "No Completed Chores"
-                        ChoreFilter.AWAITING -> "No Chores Awaiting Verification"
+                        ChoreFilter.AWAITING -> "No Chores Need Approval"
                     },
                     message = when (selectedFilter) {
                         ChoreFilter.ALL -> "Create your first chore to get started!"
@@ -116,39 +138,86 @@ enum class ChoreFilter(val label: String) {
     ALL("All"),
     PENDING("Pending"),
     COMPLETED("Completed"),
-    AWAITING("Awaiting")
+    AWAITING("Need Approval")
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChoreFilterRow(
     selectedFilter: ChoreFilter,
     onFilterSelected: (ChoreFilter) -> Unit,
     counts: Map<ChoreFilter, Int>
 ) {
-    Row(
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-            ChoreFilter.values().forEach { filter ->
-                @OptIn(ExperimentalMaterial3Api::class)
-                FilterChip(
-                selected = selectedFilter == filter,
-                onClick = { onFilterSelected(filter) },
-                label = {
-                    Text("${filter.label} (${counts[filter] ?: 0})")
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded }
+        ) {
+            OutlinedTextField(
+                value = "${selectedFilter.label} (${counts[selectedFilter] ?: 0})",
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
                 },
-                leadingIcon = if (selectedFilter == filter) {
-                    {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                } else null
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filter",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
             )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                ChoreFilter.values().forEach { filter ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = filter.label,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = "(${counts[filter] ?: 0})",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        onClick = {
+                            onFilterSelected(filter)
+                            expanded = false
+                        },
+                        leadingIcon = if (selectedFilter == filter) {
+                            {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        } else null
+                    )
+                }
+            }
         }
     }
 }

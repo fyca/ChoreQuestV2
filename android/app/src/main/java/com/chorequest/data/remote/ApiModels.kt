@@ -397,6 +397,14 @@ data class DeleteChoreRequest(
 )
 
 /**
+ * Delete recurring chore template request
+ */
+data class DeleteTemplateRequest(
+    val userId: String,
+    val templateId: String
+)
+
+/**
  * Complete chore request
  */
 data class CompleteChoreRequest(

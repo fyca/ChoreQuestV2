@@ -369,12 +369,19 @@ function getFileNameForEntityType(entityType) {
     'family': FILE_NAMES.FAMILY,
     'users': FILE_NAMES.USERS,
     'chores': FILE_NAMES.CHORES,
+    'recurring_chore_templates': FILE_NAMES.RECURRING_CHORE_TEMPLATES,
     'rewards': FILE_NAMES.REWARDS,
     'transactions': FILE_NAMES.TRANSACTIONS,
     'activity_log': FILE_NAMES.ACTIVITY_LOG
   };
   
-  return mapping[entityType] || null;
+  const fileName = mapping[entityType] || null;
+  if (!fileName && entityType === 'recurring_chore_templates') {
+    Logger.log('ERROR: recurring_chore_templates not found in mapping. Available keys: ' + Object.keys(mapping).join(', '));
+    Logger.log('FILE_NAMES.RECURRING_CHORE_TEMPLATES: ' + (FILE_NAMES.RECURRING_CHORE_TEMPLATES || 'UNDEFINED'));
+  }
+  
+  return fileName;
 }
 
 /**

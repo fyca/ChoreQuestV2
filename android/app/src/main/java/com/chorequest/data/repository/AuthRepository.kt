@@ -1,5 +1,6 @@
 package com.chorequest.data.repository
 
+import android.util.Log
 import com.chorequest.data.local.SessionManager
 import com.chorequest.data.local.dao.*
 import com.chorequest.data.local.entities.toEntity
@@ -8,7 +9,9 @@ import com.chorequest.data.remote.GoogleAuthRequest
 import com.chorequest.data.remote.QRAuthRequest
 import com.chorequest.domain.models.DeviceSession
 import com.chorequest.domain.models.User
+import com.chorequest.domain.models.UsersData
 import com.chorequest.utils.Result
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import java.util.*
@@ -24,8 +27,13 @@ class AuthRepository @Inject constructor(
     private val rewardDao: RewardDao,
     private val activityLogDao: ActivityLogDao,
     private val transactionDao: TransactionDao,
-    private val tokenManager: com.chorequest.data.drive.TokenManager
+    private val tokenManager: com.chorequest.data.drive.TokenManager,
+    private val gson: Gson,
+    private val driveApiService: com.chorequest.data.drive.DriveApiService
 ) {
+    companion object {
+        private const val TAG = "AuthRepository"
+    }
 
     /**
      * Authenticate with Google OAuth token
@@ -188,7 +196,28 @@ class AuthRepository @Inject constructor(
     }
 
     /**
+     * Helper: Read users from Drive using direct API
+     */
+    private suspend fun readUsersFromDrive(accessToken: String, folderId: String): UsersData? {
+        return try {
+            val fileName = "users.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, UsersData::class.java)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error reading users from Drive", e)
+            null
+        }
+    }
+
+    /**
      * Validate current session
+     * Uses direct Drive API for faster performance (no cold start)
      */
     fun validateSession(): Flow<Result<User>> = flow {
         emit(Result.Loading)
@@ -199,6 +228,55 @@ class AuthRepository @Inject constructor(
                 return@flow
             }
 
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            if (accessToken != null) {
+                try {
+                    android.util.Log.d(TAG, "Validating session using direct Drive API")
+                    val folderId = session.driveWorkbookLink
+                    val usersData = readUsersFromDrive(accessToken, folderId)
+                    
+                    if (usersData != null) {
+                        val user = usersData.users.find { it.id == session.userId }
+                        
+                        if (user != null) {
+                            // Validate token
+                            if (user.authToken != session.authToken) {
+                                android.util.Log.w(TAG, "Token mismatch")
+                                sessionManager.clearSession()
+                                emit(Result.Error("invalid_token"))
+                                return@flow
+                            }
+                            
+                            // Validate token version
+                            if (user.tokenVersion != session.tokenVersion) {
+                                android.util.Log.w(TAG, "Token version mismatch")
+                                sessionManager.clearSession()
+                                emit(Result.Error("token_regenerated"))
+                                return@flow
+                            }
+                            
+                            // Update cached user
+                            userDao.insertUser(user.toEntity())
+                            
+                            android.util.Log.d(TAG, "Session validated successfully via Drive API")
+                            emit(Result.Success(user))
+                            return@flow
+                        } else {
+                            android.util.Log.w(TAG, "User not found in Drive")
+                            sessionManager.clearSession()
+                            emit(Result.Error("user_not_found"))
+                            return@flow
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "Error validating session via Drive API, falling back to Apps Script", e)
+                }
+            } else {
+                android.util.Log.d(TAG, "No access token, falling back to Apps Script")
+            }
+
+            // Fallback to Apps Script
             val response = api.validateSession(
                 userId = session.userId,
                 token = session.authToken,
@@ -218,6 +296,7 @@ class AuthRepository @Inject constructor(
                 emit(Result.Error(reason))
             }
         } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error validating session", e)
             emit(Result.Error(e.message ?: "Unknown error occurred"))
         }
     }

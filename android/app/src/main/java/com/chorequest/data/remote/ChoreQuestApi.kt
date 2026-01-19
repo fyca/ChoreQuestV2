@@ -212,6 +212,15 @@ interface ChoreQuestApi {
         @Query("limit") limit: Int = 50
     ): Response<DebugLogsResponse>
     
+    // Token Refresh
+    @GET(".")
+    suspend fun refreshAccessToken(
+        @Query("path") path: String = "auth",
+        @Query("action") action: String = "refreshToken",
+        @Query("userId") userId: String,
+        @Query("token") token: String
+    ): Response<RefreshTokenResponse>
+    
     // Data Management
     @POST(".")
     suspend fun deleteAllData(

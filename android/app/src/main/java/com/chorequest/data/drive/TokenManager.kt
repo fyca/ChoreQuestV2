@@ -46,8 +46,7 @@ class TokenManager @Inject constructor(
 
     /**
      * Get a valid access token, refreshing if necessary
-     * For now, we'll get tokens from Apps Script until we implement full OAuth flow
-     * TODO: Implement token refresh using refresh token
+     * Uses Apps Script to refresh tokens when expired
      */
     suspend fun getValidAccessToken(): String? = withContext(Dispatchers.IO) {
         try {
@@ -56,11 +55,6 @@ class TokenManager @Inject constructor(
                 return@withContext null
             }
 
-            // For initial implementation, we'll need to get token from Apps Script
-            // In the future, we can store and refresh tokens locally
-            // For now, return null to fall back to Apps Script
-            // This is a placeholder - we'll implement proper token management next
-            
             // Check if we have a stored token
             val storedToken = sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
             val tokenExpiry = sharedPreferences.getLong(KEY_TOKEN_EXPIRY, 0)
@@ -70,9 +64,36 @@ class TokenManager @Inject constructor(
                 return@withContext storedToken
             }
             
-            // Token expired or not found - need to refresh
-            // For now, return null to use Apps Script
-            // TODO: Implement token refresh via Apps Script endpoint
+            // Token expired or not found - refresh via Apps Script
+            Log.d(TAG, "Token expired or not found, refreshing via Apps Script")
+            
+            try {
+                val response = api.refreshAccessToken(
+                    userId = session.userId,
+                    token = session.authToken
+                )
+                
+                if (response.isSuccessful && response.body()?.success == true) {
+                    val newAccessToken = response.body()?.accessToken
+                    val expiresIn = response.body()?.expiresIn ?: 3600
+                    
+                    if (newAccessToken != null) {
+                        // Store the new token
+                        storeAccessToken(newAccessToken, expiresIn.toLong())
+                        Log.d(TAG, "Token refreshed successfully via Apps Script")
+                        return@withContext newAccessToken
+                    } else {
+                        Log.w(TAG, "Token refresh succeeded but no access token in response")
+                    }
+                } else {
+                    val errorMsg = response.body()?.error ?: response.message()
+                    Log.w(TAG, "Token refresh failed: $errorMsg")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error refreshing token via Apps Script", e)
+            }
+            
+            // If refresh failed, return null to fall back to Apps Script
             Log.d(TAG, "No valid token found, will use Apps Script for now")
             null
         } catch (e: Exception) {

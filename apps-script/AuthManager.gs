@@ -11,6 +11,8 @@ function handleAuthRequest(e) {
   
   if (action === 'validate') {
     return validateSession(e);
+  } else if (action === 'refreshToken') {
+    return refreshTokenForUser(e);
   }
   
   return createResponse({ error: 'Invalid auth action' }, 400);
@@ -999,5 +1001,102 @@ function getValidAccessToken(userEmail) {
   } catch (error) {
     Logger.log('ERROR in getValidAccessToken: ' + error.toString());
     return null;
+  }
+}
+
+/**
+ * Refresh token endpoint for Android app
+ * Called when Android app needs to refresh an expired access token
+ */
+function refreshTokenForUser(e) {
+  try {
+    Logger.log('=== refreshTokenForUser START ===');
+    
+    // Get user ID and token from parameters
+    const userId = e.parameter.userId;
+    const token = e.parameter.token;
+    
+    if (!userId || !token) {
+      Logger.log('ERROR: Missing userId or token');
+      return createResponse({ error: 'Missing userId or token' }, 400);
+    }
+    
+    // Find the user by searching through all stored access tokens (similar to validateSession)
+    const userProps = PropertiesService.getUserProperties();
+    const allProps = userProps.getProperties();
+    
+    // Collect all owner emails from stored tokens
+    const ownerEmails = [];
+    for (const key in allProps) {
+      if (key.startsWith('ACCESS_TOKEN_') || key.startsWith('REFRESH_TOKEN_')) {
+        const ownerEmail = key.replace('ACCESS_TOKEN_', '').replace('REFRESH_TOKEN_', '');
+        if (ownerEmails.indexOf(ownerEmail) === -1) {
+          ownerEmails.push(ownerEmail);
+        }
+      }
+    }
+    
+    // Try each owner email until we find the user
+    let userEmail = null;
+    for (let i = 0; i < ownerEmails.length; i++) {
+      const ownerEmail = ownerEmails[i];
+      
+      // Get a valid access token (will refresh if expired)
+      const accessToken = getValidAccessToken(ownerEmail);
+      
+      if (!accessToken) {
+        // Skip this owner if we can't get a valid token
+        continue;
+      }
+      
+      try {
+        const folderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+        const usersData = loadJsonFileV3(FILE_NAMES.USERS, ownerEmail, folderId, accessToken);
+        
+        if (usersData && usersData.users) {
+          const user = usersData.users.find(u => u.id === userId);
+          
+          if (user) {
+            // Found the user - use the owner email (which is the primary parent's email)
+            userEmail = ownerEmail;
+            Logger.log('Found user: ' + user.name + ' (email: ' + user.email + ', owner: ' + ownerEmail + ')');
+            break;
+          }
+        }
+      } catch (error) {
+        Logger.log('Error loading user data for ' + ownerEmail + ': ' + error.toString());
+        continue;
+      }
+    }
+    
+    if (!userEmail) {
+      Logger.log('ERROR: User not found');
+      return createResponse({ error: 'User not found' }, 404);
+    }
+    
+    Logger.log('Refreshing token for user: ' + userEmail);
+    
+    // Get a valid access token (will refresh if needed)
+    const accessToken = getValidAccessToken(userEmail);
+    
+    if (!accessToken) {
+      Logger.log('ERROR: Could not get valid access token');
+      return createResponse({ 
+        error: 'Could not refresh token',
+        message: 'No refresh token available or refresh failed. Please sign in again.'
+      }, 401);
+    }
+    
+    Logger.log('Token refreshed successfully');
+    
+    return createResponse({
+      success: true,
+      accessToken: accessToken,
+      expiresIn: 3600 // Access tokens typically expire in 1 hour
+    });
+  } catch (error) {
+    Logger.log('ERROR in refreshTokenForUser: ' + error.toString());
+    Logger.log('Error stack: ' + (error.stack || 'no stack'));
+    return createResponse({ error: error.toString() }, 500);
   }
 }

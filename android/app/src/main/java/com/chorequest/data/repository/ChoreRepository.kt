@@ -15,6 +15,10 @@ import com.chorequest.domain.models.TemplatesData
 import com.chorequest.utils.Result
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -34,13 +38,55 @@ class ChoreRepository @Inject constructor(
     companion object {
         private const val TAG = "ChoreRepository"
     }
+    
+    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /**
-     * Get all chores from local cache
+     * Get all chores - loads from Drive on-demand, then returns from local cache
      */
     fun getAllChores(): Flow<List<Chore>> {
+        // Trigger background load from Drive (non-blocking)
+        repositoryScope.launch {
+            loadChoresFromDrive()
+        }
+        
+        // Return from local cache immediately, then update when Drive data loads
         return choreDao.getAllChores().map { entities ->
             entities.map { it.toDomain() }
+        }
+    }
+    
+    /**
+     * Load chores from Drive and update local cache
+     */
+    private suspend fun loadChoresFromDrive() {
+        try {
+            val session = sessionManager.loadSession() ?: return
+            val accessToken = tokenManager.getValidAccessToken()
+            
+            if (accessToken != null) {
+                try {
+                    Log.d(TAG, "Loading chores from Drive on-demand")
+                    val folderId = session.driveWorkbookLink
+                    val choresData = readChoresFromDrive(accessToken, folderId)
+                    
+                    if (choresData != null) {
+                        val chores = choresData.chores
+                        // Update local cache
+                        choreDao.deleteAllChores()
+                        if (chores.isNotEmpty()) {
+                            choreDao.insertChores(chores.map { it.toEntity() })
+                        }
+                        Log.d(TAG, "Loaded ${chores.size} chores from Drive")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error loading chores from Drive, using local cache", e)
+                }
+            } else {
+                Log.d(TAG, "No access token, using local cache only")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in loadChoresFromDrive", e)
         }
     }
 
@@ -97,6 +143,42 @@ class ChoreRepository @Inject constructor(
     }
 
     /**
+     * Helper: Read templates from Drive using direct API
+     */
+    private suspend fun readTemplatesFromDrive(accessToken: String, folderId: String): TemplatesData? {
+        return try {
+            val fileName = "recurring_chore_templates.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, TemplatesData::class.java)
+            } else {
+                // File doesn't exist, return empty
+                TemplatesData(templates = emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading templates from Drive", e)
+            null
+        }
+    }
+
+    /**
+     * Helper: Write templates to Drive using direct API
+     */
+    private suspend fun writeTemplatesToDrive(accessToken: String, folderId: String, templatesData: TemplatesData): Boolean {
+        return try {
+            val fileName = "recurring_chore_templates.json"
+            val jsonContent = gson.toJson(templatesData)
+            driveApiService.writeFileContent(accessToken, folderId, fileName, jsonContent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing templates to Drive", e)
+            false
+        }
+    }
+
+    /**
      * Create new chore
      * Drive is the source of truth - save to Drive FIRST, then cache locally
      */
@@ -116,6 +198,43 @@ class ChoreRepository @Inject constructor(
                     Log.d(TAG, "Using direct Drive API to create chore")
                     val folderId = session.driveWorkbookLink
                     
+                    var templateSaved = true
+                    
+                    // If recurring, create template first
+                    if (chore.recurring != null) {
+                        Log.d(TAG, "Creating recurring chore - saving template")
+                        val templatesData = readTemplatesFromDrive(accessToken, folderId) ?: TemplatesData(templates = emptyList())
+                        
+                        // Create template from chore
+                        val template = ChoreTemplate(
+                            id = java.util.UUID.randomUUID().toString(),
+                            title = chore.title,
+                            description = chore.description,
+                            assignedTo = chore.assignedTo,
+                            createdBy = chore.createdBy,
+                            pointValue = chore.pointValue,
+                            dueDate = chore.dueDate,
+                            recurring = chore.recurring,
+                            subtasks = chore.subtasks,
+                            createdAt = java.time.Instant.now().toString(),
+                            color = chore.color,
+                            icon = chore.icon
+                        )
+                        
+                        // Add template to list
+                        val currentTemplates = templatesData.templates ?: emptyList()
+                        val updatedTemplates = currentTemplates + template
+                        val updatedTemplatesData = templatesData.copy(templates = updatedTemplates)
+                        
+                        // Save template to Drive
+                        templateSaved = writeTemplatesToDrive(accessToken, folderId, updatedTemplatesData)
+                        if (!templateSaved) {
+                            Log.e(TAG, "Failed to write template to Drive")
+                        } else {
+                            Log.d(TAG, "Template saved successfully: ${template.id}")
+                        }
+                    }
+                    
                     // Read current chores
                     val choresData = readChoresFromDrive(accessToken, folderId) ?: ChoresData(chores = emptyList())
                     
@@ -124,14 +243,30 @@ class ChoreRepository @Inject constructor(
                     val updatedData = choresData.copy(chores = updatedChores)
                     
                     // Write back to Drive
-                    if (writeChoresToDrive(accessToken, folderId, updatedData)) {
-                        // Update local cache
-                        choreDao.insertChore(chore.toEntity())
-                        Log.d(TAG, "Chore created successfully via Drive API: ${chore.id}")
-                        emit(Result.Success(chore))
-                        return@flow
+                    val choreSaved = writeChoresToDrive(accessToken, folderId, updatedData)
+                    
+                    // For recurring chores, both template and chore must be saved
+                    if (chore.recurring != null) {
+                        if (templateSaved && choreSaved) {
+                            // Update local cache
+                            choreDao.insertChore(chore.toEntity())
+                            Log.d(TAG, "Recurring chore and template created successfully via Drive API: ${chore.id}")
+                            emit(Result.Success(chore))
+                            return@flow
+                        } else {
+                            Log.w(TAG, "Failed to save recurring chore (template=$templateSaved, chore=$choreSaved), falling back to Apps Script")
+                        }
                     } else {
-                        Log.w(TAG, "Failed to write chore to Drive, falling back to Apps Script")
+                        // Non-recurring chore - only chore needs to be saved
+                        if (choreSaved) {
+                            // Update local cache
+                            choreDao.insertChore(chore.toEntity())
+                            Log.d(TAG, "Chore created successfully via Drive API: ${chore.id}")
+                            emit(Result.Success(chore))
+                            return@flow
+                        } else {
+                            Log.w(TAG, "Failed to write chore to Drive, falling back to Apps Script")
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
@@ -622,25 +757,8 @@ class ChoreRepository @Inject constructor(
     suspend fun syncChores() {
         try {
             // TODO: Fetch from backend and update local database
-            // Fetch and log debug logs after syncing
-            try {
-                com.chorequest.utils.DebugLogHelper.fetchAndLogDebugLogs(api, limit = 50)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to fetch debug logs", e)
-            }
         } catch (e: Exception) {
             // Handle error
-        }
-    }
-    
-    /**
-     * Fetch and log debug logs from Apps Script
-     */
-    suspend fun fetchDebugLogs() {
-        try {
-            com.chorequest.utils.DebugLogHelper.fetchAndLogDebugLogs(api, limit = 100)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching debug logs", e)
         }
     }
 

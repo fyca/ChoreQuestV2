@@ -77,10 +77,6 @@ class ChoreViewModel @Inject constructor(
                 _allChores.value = chores
             }
         }
-        // Fetch debug logs in background
-        viewModelScope.launch {
-            choreRepository.fetchDebugLogs()
-        }
     }
 
     /**

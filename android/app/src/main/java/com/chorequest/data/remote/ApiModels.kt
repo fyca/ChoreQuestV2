@@ -308,6 +308,17 @@ data class CreateUserResponse(
 )
 
 /**
+ * Token refresh response
+ */
+data class RefreshTokenResponse(
+    val success: Boolean,
+    val accessToken: String? = null,
+    val expiresIn: Int? = null,
+    val error: String? = null,
+    val message: String? = null
+)
+
+/**
  * Update user request
  */
 data class UpdateUserRequest(

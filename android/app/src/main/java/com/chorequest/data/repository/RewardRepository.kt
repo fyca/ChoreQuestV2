@@ -10,7 +10,9 @@ import com.chorequest.data.local.entities.toDomain
 import com.chorequest.data.remote.*
 import com.chorequest.domain.models.Reward
 import com.chorequest.domain.models.RewardRedemption
+import com.chorequest.domain.models.RewardRedemptionsData
 import com.chorequest.utils.Result
+import com.google.gson.Gson
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -32,8 +34,14 @@ class RewardRepository @Inject constructor(
     private val rewardDao: RewardDao,
     private val rewardRedemptionDao: RewardRedemptionDao,
     private val sessionManager: SessionManager,
+    private val gson: Gson,
+    private val driveApiService: com.chorequest.data.drive.DriveApiService,
+    private val tokenManager: com.chorequest.data.drive.TokenManager,
     @ApplicationContext private val context: Context
 ) {
+    companion object {
+        private const val TAG = "RewardRepository"
+    }
 
     /**
      * Get all rewards from local database
@@ -233,8 +241,29 @@ class RewardRepository @Inject constructor(
     }
 
     /**
+     * Helper: Read reward redemptions from Drive using direct API
+     */
+    private suspend fun readRewardRedemptionsFromDrive(accessToken: String, folderId: String): RewardRedemptionsData? {
+        return try {
+            val fileName = "reward_redemptions.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, RewardRedemptionsData::class.java)
+            } else {
+                // File doesn't exist, return empty
+                RewardRedemptionsData(redemptions = emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading reward redemptions from Drive", e)
+            null
+        }
+    }
+
+    /**
      * Get reward redemptions for the current user, or all pending redemptions for the family
-     * Uses local-first approach: returns local data immediately, syncs in background
+     * Uses direct Drive API for faster performance (no cold start)
      */
     suspend fun getRewardRedemptions(userId: String? = null, familyId: String? = null): Result<List<RewardRedemption>> {
         // First, get local data immediately
@@ -245,7 +274,7 @@ class RewardRepository @Inject constructor(
                 rewardRedemptionDao.getAllRedemptions()
             }
         } catch (e: Exception) {
-            Log.e("RewardRepository", "Error reading local redemptions: ${e.message}")
+            Log.e(TAG, "Error reading local redemptions: ${e.message}")
             null
         }
         
@@ -256,7 +285,40 @@ class RewardRepository @Inject constructor(
             }
         } ?: emptyList()
         
-        // Sync from server in background (non-blocking) using coroutineScope
+        // Try direct Drive API first
+        val session = sessionManager.loadSession()
+        val accessToken = tokenManager.getValidAccessToken()
+        
+        if (session != null && accessToken != null) {
+            try {
+                Log.d(TAG, "Loading reward redemptions from Drive on-demand")
+                val folderId = session.driveWorkbookLink
+                val redemptionsData = readRewardRedemptionsFromDrive(accessToken, folderId)
+                
+                if (redemptionsData != null) {
+                    var redemptions = redemptionsData.redemptions
+                    
+                    // Filter by userId if provided
+                    if (userId != null) {
+                        redemptions = redemptions.filter { it.userId == userId }
+                    }
+                    
+                    // Update local database
+                    rewardRedemptionDao.deleteAllRedemptions()
+                    if (redemptions.isNotEmpty()) {
+                        rewardRedemptionDao.insertRedemptions(redemptions.map { it.toEntity() })
+                    }
+                    Log.d(TAG, "Loaded ${redemptions.size} reward redemptions from Drive")
+                    return Result.Success(redemptions)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading reward redemptions from Drive, falling back to Apps Script", e)
+            }
+        } else {
+            Log.d(TAG, "No access token, falling back to Apps Script")
+        }
+        
+        // Fallback to Apps Script
         kotlinx.coroutines.coroutineScope {
             launch(Dispatchers.IO) {
                 try {
@@ -268,10 +330,10 @@ class RewardRepository @Inject constructor(
                         if (redemptions.isNotEmpty()) {
                             rewardRedemptionDao.insertRedemptions(redemptions.map { it.toEntity() })
                         }
-                        Log.d("RewardRepository", "Synced ${redemptions.size} redemptions from server")
+                        Log.d(TAG, "Synced ${redemptions.size} redemptions from Apps Script")
                     }
                 } catch (e: Exception) {
-                    Log.e("RewardRepository", "Background sync of redemptions failed: ${e.message}")
+                    Log.e(TAG, "Background sync of redemptions failed: ${e.message}")
                 }
             }
         }

@@ -27,9 +27,11 @@ object RepositoryModule {
         rewardDao: RewardDao,
         activityLogDao: ActivityLogDao,
         transactionDao: TransactionDao,
-        tokenManager: com.chorequest.data.drive.TokenManager
+        tokenManager: com.chorequest.data.drive.TokenManager,
+        gson: Gson,
+        driveApiService: com.chorequest.data.drive.DriveApiService
     ): AuthRepository {
-        return AuthRepository(api, sessionManager, userDao, choreDao, rewardDao, activityLogDao, transactionDao, tokenManager)
+        return AuthRepository(api, sessionManager, userDao, choreDao, rewardDao, activityLogDao, transactionDao, tokenManager, gson, driveApiService)
     }
 
     @Provides

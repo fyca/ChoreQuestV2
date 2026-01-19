@@ -43,48 +43,13 @@ class ChildDashboardViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.chorequest.utils.NetworkStatus.Available)
 
     init {
-        // Trigger sync first, then load dashboard data (match Parent dashboard behavior)
+        // Load dashboard data directly when screen opens (on-demand)
         viewModelScope.launch {
-            syncManager.triggerImmediateSync()
-            kotlinx.coroutines.delay(1000)
             loadDashboardData()
-            loadLastSyncTime()
-        }
-        
-        // Observe sync completion and refresh data
-        viewModelScope.launch {
-            observeSyncCompletion()
         }
     }
     
-    /**
-     * Observe sync work completion and refresh data when sync succeeds
-     */
-    private fun observeSyncCompletion() {
-        viewModelScope.launch {
-            // Convert LiveData to Flow using callbackFlow
-            callbackFlow {
-                val observer = androidx.lifecycle.Observer<List<WorkInfo>> { workInfos ->
-                    trySend(workInfos)
-                }
-                syncManager.getSyncWorkInfoLiveData().observeForever(observer)
-                awaitClose {
-                    syncManager.getSyncWorkInfoLiveData().removeObserver(observer)
-                }
-            }
-            .distinctUntilChanged()
-            .collect { workInfos ->
-                val latestWork = workInfos.firstOrNull()
-                val state = latestWork?.state
-                
-                // When sync completes successfully, refresh the timestamp
-                if (state == WorkInfo.State.SUCCEEDED) {
-                    loadLastSyncTime()
-                    loadDashboardData()
-                }
-            }
-        }
-    }
+    // Sync observation removed - data loads on-demand when screen opens
 
     /**
      * Load dashboard data for child

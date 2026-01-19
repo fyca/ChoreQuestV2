@@ -302,6 +302,10 @@ private fun formatActivityDescription(log: ActivityLog): String {
         ActivityActionType.REWARD_DELETED -> {
             "${actorName} deleted reward \"${rewardTitle ?: "Untitled"}\""
         }
+        ActivityActionType.RECURRING_CHORE_TEMPLATE_DELETED -> {
+            val templateTitle = log.details.templateTitle ?: "a recurring chore template"
+            "${actorName} deleted recurring chore template \"$templateTitle\""
+        }
         ActivityActionType.REWARD_REDEEMED -> {
             val costText = (log.details.pointsSpent ?: rewardCost)?.let { " for $it points" } ?: ""
             "${actorName} redeemed reward \"${rewardTitle ?: "Untitled"}\"$costText"

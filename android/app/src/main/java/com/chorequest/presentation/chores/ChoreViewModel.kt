@@ -211,17 +211,23 @@ class ChoreViewModel @Inject constructor(
 
     /**
      * Load recurring chore templates
+     * Only shows loading spinner on initial load, not on refresh
      */
-    fun loadRecurringChoreTemplates() {
+    fun loadRecurringChoreTemplates(showLoading: Boolean = false) {
         viewModelScope.launch {
-            _isLoadingTemplates.value = true
+            if (showLoading || _recurringChoreTemplates.value.isEmpty()) {
+                _isLoadingTemplates.value = true
+            }
             try {
                 choreRepository.getRecurringChoreTemplates().collect { templates ->
                     _recurringChoreTemplates.value = templates
                 }
             } catch (e: Exception) {
                 android.util.Log.e("ChoreViewModel", "Error loading templates: ${e.message}", e)
-                _recurringChoreTemplates.value = emptyList()
+                // Don't clear existing templates on error if we have them
+                if (_recurringChoreTemplates.value.isEmpty()) {
+                    _recurringChoreTemplates.value = emptyList()
+                }
             } finally {
                 _isLoadingTemplates.value = false
             }
@@ -230,18 +236,33 @@ class ChoreViewModel @Inject constructor(
 
     /**
      * Delete recurring chore template
+     * Uses optimistic updates for instant UI feedback
      */
     fun deleteRecurringChoreTemplate(templateId: String) {
         viewModelScope.launch {
+            // Optimistic update: Remove from UI immediately
+            val currentTemplates = _recurringChoreTemplates.value.toMutableList()
+            val templateToDelete = currentTemplates.find { it.id == templateId }
+            _recurringChoreTemplates.value = currentTemplates.filter { it.id != templateId }
+            
             _isDeletingTemplate.value = true
+            
+            // Perform actual deletion in background
             choreRepository.deleteRecurringChoreTemplate(templateId).collect { result ->
                 when (result) {
                     is Result.Success -> {
                         _isDeletingTemplate.value = false
-                        loadRecurringChoreTemplates() // Refresh list
+                        // Refresh in background to ensure sync, but don't wait for it
+                        viewModelScope.launch {
+                            loadRecurringChoreTemplates()
+                        }
                     }
                     is Result.Error -> {
                         _isDeletingTemplate.value = false
+                        // Rollback optimistic update on error
+                        if (templateToDelete != null) {
+                            _recurringChoreTemplates.value = currentTemplates
+                        }
                         // TODO: Show error message
                         android.util.Log.e("ChoreViewModel", "Failed to delete template: ${result.message}")
                     }

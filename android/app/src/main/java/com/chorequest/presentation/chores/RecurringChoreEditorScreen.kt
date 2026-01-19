@@ -35,7 +35,7 @@ fun RecurringChoreEditorScreen(
 
     // Refresh templates when screen opens
     LaunchedEffect(Unit) {
-        viewModel.loadRecurringChoreTemplates()
+        viewModel.loadRecurringChoreTemplates(showLoading = true)
     }
 
     Scaffold(

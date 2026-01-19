@@ -99,12 +99,40 @@ fun LoginScreen(
                     val serverAuthCode = account.serverAuthCode
                     android.util.Log.d("LoginScreen", "Server auth code: ${if (serverAuthCode != null) "present (${serverAuthCode.length} chars)" else "null"}")
                     
-                    // Skip GoogleAuthUtil.getToken() to avoid browser prompts
-                    // Use server auth code which Apps Script can exchange for access token
-                    // This requires OAuth credentials in Apps Script, but avoids browser prompts in the app
-                    android.util.Log.d("LoginScreen", "Using server auth code flow (no GoogleAuthUtil to avoid browser prompt)")
-                    android.util.Log.d("LoginScreen", "Calling viewModel.loginWithGoogle")
-                    viewModel.loginWithGoogle(idToken, account.email, null, serverAuthCode)
+                    // Get access token using GoogleAuthUtil
+                    // Since we've already requested Drive scope, we can get the token directly
+                    scope.launch {
+                        var accessToken: String? = null
+                        if (hasDriveScope && account.account != null) {
+                            try {
+                                // Use the full Drive file scope
+                                val scopeString = "oauth2:https://www.googleapis.com/auth/drive.file"
+                                android.util.Log.d("LoginScreen", "Requesting access token with scope: $scopeString")
+                                accessToken = withContext(Dispatchers.IO) {
+                                    try {
+                                        GoogleAuthUtil.getToken(context, account.account!!, scopeString)
+                                    } catch (e: UserRecoverableAuthException) {
+                                        android.util.Log.w("LoginScreen", "User recoverable auth exception - may need additional authorization: ${e.message}")
+                                        null
+                                    } catch (e: GoogleAuthException) {
+                                        android.util.Log.e("LoginScreen", "GoogleAuthException getting token", e)
+                                        null
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("LoginScreen", "Error getting access token", e)
+                                        null
+                                    }
+                                }
+                                android.util.Log.d("LoginScreen", "Access token: ${if (accessToken != null) "present (${accessToken!!.length} chars)" else "null"}")
+                            } catch (e: Exception) {
+                                android.util.Log.e("LoginScreen", "Error in coroutine for token", e)
+                            }
+                        } else {
+                            android.util.Log.d("LoginScreen", "Drive scope not granted or account is null, using server auth code only")
+                        }
+                        
+                        android.util.Log.d("LoginScreen", "Calling viewModel.loginWithGoogle")
+                        viewModel.loginWithGoogle(idToken, account.email, accessToken, serverAuthCode)
+                    }
                 } ?: run {
                     android.util.Log.e("LoginScreen", "ID token is null")
                 }

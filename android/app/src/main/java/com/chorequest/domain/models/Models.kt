@@ -207,7 +207,8 @@ enum class ActivityActionType {
     DEVICE_LOGOUT,
     DEVICE_REMOVED,
     SESSION_EXPIRED,
-    SETTINGS_CHANGED
+    SETTINGS_CHANGED,
+    RECURRING_CHORE_TEMPLATE_DELETED
 }
 
 data class ActivityLog(
@@ -244,7 +245,8 @@ data class ActivityDetails(
     val photoUrl: String? = null,
     val notes: String? = null,
     val hadPhotoProof: Boolean? = null,
-    val updatedFields: List<String>? = null
+    val updatedFields: List<String>? = null,
+    val templateTitle: String? = null  // for recurring_chore_template_deleted
 )
 
 data class ActivityMetadata(

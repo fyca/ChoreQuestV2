@@ -23,7 +23,8 @@ class AuthRepository @Inject constructor(
     private val choreDao: ChoreDao,
     private val rewardDao: RewardDao,
     private val activityLogDao: ActivityLogDao,
-    private val transactionDao: TransactionDao
+    private val transactionDao: TransactionDao,
+    private val tokenManager: com.chorequest.data.drive.TokenManager
 ) {
 
     /**
@@ -33,6 +34,11 @@ class AuthRepository @Inject constructor(
      * @param serverAuthCode Server auth code for OAuth token exchange (fallback, optional)
      */
     fun authenticateWithGoogle(googleToken: String, accessToken: String? = null, serverAuthCode: String? = null): Flow<Result<User>> = flow {
+        // Store access token if provided (before authentication)
+        if (accessToken != null) {
+            android.util.Log.d("AuthRepository", "Storing access token for Drive API")
+            tokenManager.storeAccessToken(accessToken, expiresInSeconds = 3600)
+        }
           emit(Result.Loading)
           try {
             android.util.Log.d("AuthRepository", "Attempting Google auth with URL: ${com.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_URL}")
@@ -80,6 +86,10 @@ class AuthRepository @Inject constructor(
        
                 // Cache user locally
                 userDao.insertUser(user.toEntity())
+                
+                // Access token was already stored at the beginning of the function if provided
+                // If we only have serverAuthCode, Apps Script will handle token exchange
+                // and we can retrieve it later if needed
        
                 android.util.Log.d("AuthRepository", "Session saved, emitting success")
                 emit(Result.Success(user))

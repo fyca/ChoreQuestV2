@@ -200,6 +200,17 @@ function getData(entityType, e) {
     }
     
     const { ownerEmail, folderId, accessToken } = familyInfo;
+    
+    // For chores, ensure recurring chore instances are up to date before fetching
+    if (entityType === 'chores') {
+      if (typeof ensureRecurringChoreInstances !== 'undefined') {
+        ensureRecurringChoreInstances(ownerEmail, folderId, accessToken);
+        if (typeof addDebugLog !== 'undefined') {
+          addDebugLog('INFO', 'getData: Called for chores, ensured recurring instances');
+        }
+      }
+    }
+    
     const fileName = getFileNameForEntityType(entityType);
     
     if (!fileName) {
@@ -384,6 +395,16 @@ function getBatchData(types, familyId) {
     const typeList = types.split(',').map(t => t.trim()).filter(t => t.length > 0);
     Logger.log('getBatchData: Parsed types: ' + JSON.stringify(typeList));
     
+    // If chores are in the batch, ensure recurring instances are up to date first
+    if (typeList.includes('chores')) {
+      if (typeof ensureRecurringChoreInstances !== 'undefined') {
+        ensureRecurringChoreInstances(ownerEmail, folderId, accessToken);
+        if (typeof addDebugLog !== 'undefined') {
+          addDebugLog('INFO', 'getBatchData: Called with chores, ensured recurring instances');
+        }
+      }
+    }
+    
     // Map entity types to file names
     const typeToFile = {
       'family': FILE_NAMES.FAMILY,
@@ -510,6 +531,10 @@ function deleteAllData(data) {
     Logger.log('deleteAllData: Clearing chores file...');
     const choresResult = saveJsonFileV3(FILE_NAMES.CHORES, { chores: [] }, ownerEmail, folderId, accessToken);
     Logger.log('deleteAllData: Chores file saved: ' + (choresResult ? 'SUCCESS' : 'FAILED'));
+    
+    Logger.log('deleteAllData: Clearing recurring chore templates file...');
+    const templatesResult = saveJsonFileV3(FILE_NAMES.RECURRING_CHORE_TEMPLATES, { templates: [] }, ownerEmail, folderId, accessToken);
+    Logger.log('deleteAllData: Recurring templates file saved: ' + (templatesResult ? 'SUCCESS' : 'FAILED'));
     
     Logger.log('deleteAllData: Clearing rewards file...');
     const rewardsResult = saveJsonFileV3(FILE_NAMES.REWARDS, { rewards: [] }, ownerEmail, folderId, accessToken);

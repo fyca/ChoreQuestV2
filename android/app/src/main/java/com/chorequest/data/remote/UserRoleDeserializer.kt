@@ -20,6 +20,7 @@ class UserRoleDeserializer : JsonDeserializer<UserRole> {
         return when (roleString) {
             "parent" -> UserRole.PARENT
             "child" -> UserRole.CHILD
+            "system" -> UserRole.SYSTEM
             else -> throw IllegalArgumentException("Unknown role: $roleString")
         }
     }

@@ -34,6 +34,7 @@ fun ProfileScreen(
     val userRole = when (user?.role) {
         com.chorequest.domain.models.UserRole.PARENT -> "Parent"
         com.chorequest.domain.models.UserRole.CHILD -> "Child"
+        com.chorequest.domain.models.UserRole.SYSTEM -> "System"
         null -> "Unknown"
     }
     val pointsBalance = user?.pointsBalance ?: 0

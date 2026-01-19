@@ -178,6 +178,27 @@ data class ActivityLogResponse(
 )
 
 /**
+ * Debug log entry from Apps Script
+ */
+data class DebugLogEntry(
+    val timestamp: String,
+    val level: String,
+    val message: String,
+    val data: Map<String, Any>? = null
+)
+
+/**
+ * Debug logs response
+ */
+data class DebugLogsResponse(
+    val success: Boolean,
+    val logs: List<DebugLogEntry>? = null,
+    val count: Int = 0,
+    val error: String? = null,
+    val message: String? = null
+)
+
+/**
  * Rewards (Apps Script RewardManager.gs uses { success, reward } and { success, rewards })
  */
 data class CreateRewardRequest(

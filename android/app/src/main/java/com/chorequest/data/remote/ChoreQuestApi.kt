@@ -204,6 +204,14 @@ interface ChoreQuestApi {
         @Query("pageSize") pageSize: Int = 50
     ): Response<ActivityLogResponse>
     
+    // Debug Logs
+    @GET(".")
+    suspend fun getDebugLogs(
+        @Query("path") path: String = "debug",
+        @Query("action") action: String = "get",
+        @Query("limit") limit: Int = 50
+    ): Response<DebugLogsResponse>
+    
     // Data Management
     @POST(".")
     suspend fun deleteAllData(

@@ -7,7 +7,7 @@ package com.chorequest.domain.models
 
 // Enums
 enum class UserRole {
-    PARENT, CHILD
+    PARENT, CHILD, SYSTEM
 }
 
 enum class ThemeMode {

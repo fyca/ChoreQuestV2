@@ -1019,7 +1019,11 @@ private fun UserSelectorDialog(
                                     fontWeight = FontWeight.Medium
                                 )
                                 Text(
-                                    text = if (user.role.name == "PARENT") "Parent" else "Child",
+                                    text = when (user.role) {
+                                        UserRole.PARENT -> "Parent"
+                                        UserRole.CHILD -> "Child"
+                                        UserRole.SYSTEM -> "System"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

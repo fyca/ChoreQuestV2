@@ -262,6 +262,9 @@ class ChoreRepository @Inject constructor(
                     emit(Result.Error("Failed to delete chore from Drive: $errorMsg"))
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Re-throw cancellation exceptions - they should propagate up
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting chore", e)
             emit(Result.Error(e.message ?: "Failed to delete chore"))
@@ -378,8 +381,25 @@ class ChoreRepository @Inject constructor(
     suspend fun syncChores() {
         try {
             // TODO: Fetch from backend and update local database
+            // Fetch and log debug logs after syncing
+            try {
+                com.chorequest.utils.DebugLogHelper.fetchAndLogDebugLogs(api, limit = 50)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch debug logs", e)
+            }
         } catch (e: Exception) {
             // Handle error
+        }
+    }
+    
+    /**
+     * Fetch and log debug logs from Apps Script
+     */
+    suspend fun fetchDebugLogs() {
+        try {
+            com.chorequest.utils.DebugLogHelper.fetchAndLogDebugLogs(api, limit = 100)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching debug logs", e)
         }
     }
 }

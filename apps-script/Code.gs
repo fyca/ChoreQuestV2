@@ -10,6 +10,7 @@ const FILE_NAMES = {
   FAMILY: 'family.json',
   USERS: 'users.json',
   CHORES: 'chores.json',
+  RECURRING_CHORE_TEMPLATES: 'recurring_chore_templates.json',
   REWARDS: 'rewards.json',
   REWARD_REDEMPTIONS: 'reward_redemptions.json',
   TRANSACTIONS: 'transactions.json',
@@ -64,6 +65,8 @@ function doGet(e) {
       return handleRewardsRequest(e);
     } else if (path === 'activity') {
       return handleActivityLogsRequest(e);
+    } else if (path === 'debug') {
+      return handleDebugLogsRequest(e);
     } else if (path === 'photo') {
       // Photo proxy endpoint - serves image directly as binary
       return handlePhotoGet(e);
@@ -541,6 +544,7 @@ function initializeFamilyData(userEmail, userName, userPicture, accessToken) {
   saveJsonFileV3(FILE_NAMES.FAMILY, familyData, userEmail, null, accessToken);
   saveJsonFileV3(FILE_NAMES.USERS, { users: [primaryUser] }, userEmail, null, accessToken);
   saveJsonFileV3(FILE_NAMES.CHORES, { chores: [] }, userEmail, null, accessToken);
+  saveJsonFileV3(FILE_NAMES.RECURRING_CHORE_TEMPLATES, { templates: [] }, userEmail, null, accessToken);
   saveJsonFileV3(FILE_NAMES.REWARDS, { rewards: [] }, userEmail, null, accessToken);
   saveJsonFileV3(FILE_NAMES.REWARD_REDEMPTIONS, { redemptions: [] }, userEmail, null, accessToken);
   saveJsonFileV3(FILE_NAMES.TRANSACTIONS, { transactions: [] }, userEmail, null, accessToken);

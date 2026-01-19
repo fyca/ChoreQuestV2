@@ -56,9 +56,19 @@ fun ChoreDetailScreen(
         viewModel.loadChoreDetail(choreId)
     }
 
+    // Handle Deleted state - navigate back when chore is deleted
+    LaunchedEffect(choreDetailState) {
+        if (choreDetailState is ChoreDetailState.Deleted) {
+            onNavigateBack()
+        }
+    }
+
     when (val state = choreDetailState) {
         is ChoreDetailState.Loading -> {
             LoadingScreen(message = "Loading chore...")
+        }
+        is ChoreDetailState.Deleted -> {
+            LoadingScreen(message = "Deleting chore...")
         }
         is ChoreDetailState.Error -> {
             Box(
@@ -607,9 +617,8 @@ fun ChoreDetailScreen(
                     confirmButton = {
                         Button(
                             onClick = {
-                                viewModel.deleteChore(chore)
                                 showDeleteDialog = false
-                                onNavigateBack()
+                                viewModel.deleteChore(chore)
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.error

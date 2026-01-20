@@ -83,7 +83,8 @@ class SyncManager @Inject constructor(
      * Gets the state of the sync work as LiveData
      */
     fun getSyncWorkInfoLiveData(): LiveData<List<WorkInfo>> {
-        return workManager.getWorkInfosForUniqueWorkLiveData(SyncWorker.WORK_NAME)
+        // Observe by tag so both periodic sync and one-time manual sync are reflected
+        return workManager.getWorkInfosByTagLiveData(SyncWorker.TAG)
     }
     
     /**

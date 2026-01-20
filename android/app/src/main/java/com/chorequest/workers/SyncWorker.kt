@@ -31,8 +31,9 @@ class SyncWorker @AssistedInject constructor(
             val success = syncRepository.syncAll(forceSync = forceSync)
             
             if (success) {
-                // syncAll() updates the timestamp internally when sync actually runs
-                Log.i(TAG, "Sync completed successfully")
+                // Persist last synced timestamp for UI (dashboard "Synced Xm ago") and future throttling
+                syncRepository.updateLastSyncTime(System.currentTimeMillis())
+                Log.i(TAG, "Sync completed successfully (lastSynced updated)")
                 Result.success()
             } else {
                 Log.w(TAG, "Sync failed, will retry")

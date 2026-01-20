@@ -19,7 +19,8 @@ import javax.inject.Inject
 @HiltViewModel
 class QRScannerViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val syncRepository: com.chorequest.data.repository.SyncRepository
+    private val syncRepository: com.chorequest.data.repository.SyncRepository,
+    private val syncManager: com.chorequest.workers.SyncManager
 ) : ViewModel() {
 
     private val _scannerState = MutableStateFlow<QRScannerState>(QRScannerState.Scanning)
@@ -83,6 +84,10 @@ class QRScannerViewModel @Inject constructor(
                         viewModelScope.launch {
                             syncRepository.updateLastSyncTime(System.currentTimeMillis())
                         }
+                        
+                        // Schedule periodic background sync (every 15 minutes)
+                        // Safe to call even if already scheduled (uses KEEP policy)
+                        syncManager.scheduleSyncWork()
                         
                         // Navigate based on user role
                         _navigationEvent.emit(

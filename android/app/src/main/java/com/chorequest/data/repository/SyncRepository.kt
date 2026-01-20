@@ -29,7 +29,9 @@ class SyncRepository @Inject constructor(
     private val activityLogDao: ActivityLogDao,
     private val authRepository: AuthRepository,
     private val sessionManager: SessionManager,
-    private val gson: Gson
+    private val gson: Gson,
+    private val driveApiService: com.chorequest.data.drive.DriveApiService,
+    private val tokenManager: com.chorequest.data.drive.TokenManager
 ) {
     companion object {
         private const val TAG = "SyncRepository"
@@ -63,10 +65,18 @@ class SyncRepository @Inject constructor(
                 }
             }
 
-            Log.i(TAG, "Sync operations removed - data now loads on-demand when screens open")
-            // Batch sync removed - each screen now loads its own data on-demand
-            // This improves performance by only loading what's needed
-            
+            Log.i(TAG, "Starting background sync for family ${session.familyId}")
+            val familyId = session.familyId
+
+            // Perform background sync of all data types
+            // Note: Screens still load data on-demand for immediate UI updates,
+            // but background sync keeps local database fresh for offline access
+            syncChores(familyId)
+            syncRewards(familyId)
+            syncUsers(familyId)
+            syncActivityLogs(familyId)
+
+            Log.i(TAG, "Background sync completed successfully")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Sync failed", e)
@@ -76,11 +86,48 @@ class SyncRepository @Inject constructor(
 
     /**
      * Syncs chores from the server to local database
+     * Uses direct Google Drive API first, falls back to Apps Script if needed
      * IMPORTANT: Only deletes local data AFTER successfully fetching from Drive
      */
     private suspend fun syncChores(familyId: String) {
         try {
-            Log.d(TAG, "Syncing chores from backend...")
+            val session = authRepository.getCurrentSession()
+            if (session == null) {
+                Log.e(TAG, "No session for syncing chores")
+                return
+            }
+
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            if (accessToken != null && folderId.isNotBlank()) {
+                try {
+                    Log.d(TAG, "Syncing chores using direct Drive API...")
+                    val choresData = readChoresFromDrive(accessToken, folderId)
+                    
+                    if (choresData != null) {
+                        val chores = choresData.chores ?: emptyList()
+                        
+                        // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
+                        choreDao.deleteAllChores()
+                        if (chores.isNotEmpty()) {
+                            choreDao.insertChores(chores.map { it.toEntity() })
+                        }
+                        Log.d(TAG, "Synced ${chores.size} chores via Drive API")
+                        return
+                    } else {
+                        Log.w(TAG, "Failed to read chores from Drive, falling back to Apps Script")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                }
+            } else {
+                Log.d(TAG, "No access token or folder ID available, using Apps Script")
+            }
+
+            // Fallback to Apps Script
+            Log.d(TAG, "Syncing chores using Apps Script...")
             val response = api.getData(
                 path = "data",
                 action = "get",
@@ -99,36 +146,68 @@ class SyncRepository @Inject constructor(
                     val chores = choresData.chores ?: emptyList()
                     
                     // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
-                    // This prevents clearing local data if Drive fetch/parse fails
-                    // Use a transaction to ensure atomicity
                     choreDao.deleteAllChores()
                     if (chores.isNotEmpty()) {
                         choreDao.insertChores(chores.map { it.toEntity() })
                     }
-                    Log.d(TAG, "Synced ${chores.size} chores from Drive")
+                    Log.d(TAG, "Synced ${chores.size} chores via Apps Script")
                 } else {
                     Log.w(TAG, "No chores data in response body - keeping existing local data")
-                    // Don't delete local data if Drive returns null/empty
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
-                Log.e(TAG, "Failed to sync chores from Drive: $errorBody - keeping existing local data")
-                // Don't delete local data if sync fails - preserve what we have
+                Log.e(TAG, "Failed to sync chores via Apps Script: $errorBody - keeping existing local data")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error syncing chores from Drive", e)
-            // Don't delete local data on exception - keep existing data
+            Log.e(TAG, "Error syncing chores", e)
             // Don't throw - allow other syncs to continue
         }
     }
 
     /**
      * Syncs rewards from the server to local database
+     * Uses direct Google Drive API first, falls back to Apps Script if needed
      * IMPORTANT: Only deletes local data AFTER successfully fetching from Drive
      */
     private suspend fun syncRewards(familyId: String) {
         try {
-            Log.d(TAG, "Syncing rewards from backend...")
+            val session = authRepository.getCurrentSession()
+            if (session == null) {
+                Log.e(TAG, "No session for syncing rewards")
+                return
+            }
+
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            if (accessToken != null && folderId.isNotBlank()) {
+                try {
+                    Log.d(TAG, "Syncing rewards using direct Drive API...")
+                    val rewardsData = readRewardsFromDrive(accessToken, folderId)
+                    
+                    if (rewardsData != null) {
+                        val rewards = rewardsData.rewards ?: emptyList()
+                        
+                        // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
+                        rewardDao.deleteAllRewards()
+                        if (rewards.isNotEmpty()) {
+                            rewardDao.insertRewards(rewards.map { it.toEntity() })
+                        }
+                        Log.d(TAG, "Synced ${rewards.size} rewards via Drive API")
+                        return
+                    } else {
+                        Log.w(TAG, "Failed to read rewards from Drive, falling back to Apps Script")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                }
+            } else {
+                Log.d(TAG, "No access token or folder ID available, using Apps Script")
+            }
+
+            // Fallback to Apps Script
+            Log.d(TAG, "Syncing rewards using Apps Script...")
             val response = api.getData(
                 path = "data",
                 action = "get",
@@ -146,24 +225,20 @@ class SyncRepository @Inject constructor(
                     val rewards = rewardsData.rewards ?: emptyList()
                     
                     // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
-                    // This prevents clearing local data if Drive fetch/parse fails
                     rewardDao.deleteAllRewards()
                     if (rewards.isNotEmpty()) {
                         rewardDao.insertRewards(rewards.map { it.toEntity() })
                     }
-                    Log.d(TAG, "Synced ${rewards.size} rewards from Drive")
+                    Log.d(TAG, "Synced ${rewards.size} rewards via Apps Script")
                 } else {
                     Log.w(TAG, "No rewards data in response body - keeping existing local data")
-                    // Don't delete local data if Drive returns null/empty
                 }
             } else {
                 val errorBody = response.errorBody()?.string()
-                Log.e(TAG, "Failed to sync rewards from Drive: $errorBody - keeping existing local data")
-                // Don't delete local data if sync fails - preserve what we have
+                Log.e(TAG, "Failed to sync rewards via Apps Script: $errorBody - keeping existing local data")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error syncing rewards from Drive", e)
-            // Don't delete local data on exception - keep existing data
+            Log.e(TAG, "Error syncing rewards", e)
             // Don't throw - allow other syncs to continue
         }
     }
@@ -171,11 +246,53 @@ class SyncRepository @Inject constructor(
     // Batch sync removed - data now loads on-demand when screens open
 
     /**
-     * Syncs users from the server to local database (fallback method)
+     * Syncs users from the server to local database
+     * Uses direct Google Drive API first, falls back to Apps Script if needed
      */
     private suspend fun syncUsers(familyId: String) {
         try {
-            Log.d(TAG, "Syncing users from backend...")
+            val session = authRepository.getCurrentSession()
+            if (session == null) {
+                Log.e(TAG, "No session for syncing users")
+                return
+            }
+
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            if (accessToken != null && folderId.isNotBlank()) {
+                try {
+                    Log.d(TAG, "Syncing users using direct Drive API...")
+                    val usersData = readUsersFromDrive(accessToken, folderId)
+                    
+                    if (usersData != null && usersData.users != null) {
+                        val users = usersData.users
+                        
+                        // Don't delete all users - keep the current logged-in user
+                        // Just update/insert the synced users
+                        users.forEach { user ->
+                            val existing = userDao.getUserById(user.id)
+                            if (existing != null) {
+                                userDao.updateUser(user.toEntity())
+                            } else {
+                                userDao.insertUser(user.toEntity())
+                            }
+                        }
+                        Log.d(TAG, "Synced ${users.size} users via Drive API")
+                        return
+                    } else {
+                        Log.w(TAG, "Failed to read users from Drive, falling back to Apps Script")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                }
+            } else {
+                Log.d(TAG, "No access token or folder ID available, using Apps Script")
+            }
+
+            // Fallback to Apps Script
+            Log.d(TAG, "Syncing users using Apps Script...")
             val response = api.listUsers(familyId = familyId)
             
             if (response.isSuccessful && response.body()?.success == true) {
@@ -191,10 +308,10 @@ class SyncRepository @Inject constructor(
                         userDao.insertUser(user.toEntity())
                     }
                 }
-                Log.d(TAG, "Synced ${users.size} users")
+                Log.d(TAG, "Synced ${users.size} users via Apps Script")
             } else {
                 val errorBody = response.errorBody()?.string()
-                Log.e(TAG, "Failed to sync users: $errorBody")
+                Log.e(TAG, "Failed to sync users via Apps Script: $errorBody")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing users", e)
@@ -204,10 +321,62 @@ class SyncRepository @Inject constructor(
 
     /**
      * Syncs activity logs from the server to local database
+     * Uses direct Google Drive API first, falls back to Apps Script if needed
      */
     private suspend fun syncActivityLogs(familyId: String) {
         try {
-            Log.d(TAG, "Syncing activity logs from backend...")
+            val session = authRepository.getCurrentSession()
+            if (session == null) {
+                Log.e(TAG, "No session for syncing activity logs")
+                return
+            }
+
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            if (accessToken != null && folderId.isNotBlank()) {
+                try {
+                    Log.d(TAG, "Syncing activity logs using direct Drive API...")
+                    val activityLogData = readActivityLogsFromDrive(accessToken, folderId)
+                    
+                    if (activityLogData != null && activityLogData.logs != null) {
+                        val logs = activityLogData.logs
+                        
+                        // Filter out invalid logs and convert to entities
+                        val validEntities = logs.mapNotNull { log ->
+                            try {
+                                // Validate required fields before conversion
+                                if (log.actionType == null) {
+                                    Log.w(TAG, "Skipping activity log ${log.id} - missing actionType")
+                                    return@mapNotNull null
+                                }
+                                log.toEntity()
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error converting activity log ${log.id} to entity: ${e.message}", e)
+                                null
+                            }
+                        }
+                        
+                        if (validEntities.isNotEmpty()) {
+                            activityLogDao.insertLogs(validEntities)
+                            Log.d(TAG, "Synced ${validEntities.size} activity logs via Drive API (${logs.size - validEntities.size} skipped)")
+                        } else {
+                            Log.d(TAG, "No valid activity logs to sync")
+                        }
+                        return
+                    } else {
+                        Log.w(TAG, "Failed to read activity logs from Drive, falling back to Apps Script")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                }
+            } else {
+                Log.d(TAG, "No access token or folder ID available, using Apps Script")
+            }
+
+            // Fallback to Apps Script
+            Log.d(TAG, "Syncing activity logs using Apps Script...")
             val response = api.getActivityLogs(
                 familyId = familyId,
                 userId = null,
@@ -239,7 +408,7 @@ class SyncRepository @Inject constructor(
                     
                     if (validEntities.isNotEmpty()) {
                         activityLogDao.insertLogs(validEntities)
-                        Log.d(TAG, "Synced ${validEntities.size} activity logs (${logs.size - validEntities.size} skipped)")
+                        Log.d(TAG, "Synced ${validEntities.size} activity logs via Apps Script (${logs.size - validEntities.size} skipped)")
                     } else {
                         Log.w(TAG, "No valid activity logs to sync")
                     }
@@ -247,11 +416,95 @@ class SyncRepository @Inject constructor(
                     Log.d(TAG, "No activity logs in response")
                 }
             } else {
-                Log.e(TAG, "Failed to sync activity logs: ${response.errorBody()?.string()}")
+                Log.e(TAG, "Failed to sync activity logs via Apps Script: ${response.errorBody()?.string()}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing activity logs", e)
             // Don't throw - allow other syncs to continue
+        }
+    }
+
+    /**
+     * Helper: Read chores from Drive using direct API
+     */
+    private suspend fun readChoresFromDrive(accessToken: String, folderId: String): ChoresData? {
+        return try {
+            val fileName = "chores.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, ChoresData::class.java)
+            } else {
+                // File doesn't exist, return empty
+                ChoresData(chores = emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading chores from Drive", e)
+            null
+        }
+    }
+
+    /**
+     * Helper: Read rewards from Drive using direct API
+     */
+    private suspend fun readRewardsFromDrive(accessToken: String, folderId: String): RewardsData? {
+        return try {
+            val fileName = "rewards.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, RewardsData::class.java)
+            } else {
+                // File doesn't exist, return empty
+                RewardsData(rewards = emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading rewards from Drive", e)
+            null
+        }
+    }
+
+    /**
+     * Helper: Read users from Drive using direct API
+     */
+    private suspend fun readUsersFromDrive(accessToken: String, folderId: String): UsersData? {
+        return try {
+            val fileName = "users.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, UsersData::class.java)
+            } else {
+                // File doesn't exist, return null
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading users from Drive", e)
+            null
+        }
+    }
+
+    /**
+     * Helper: Read activity logs from Drive using direct API
+     */
+    private suspend fun readActivityLogsFromDrive(accessToken: String, folderId: String): ActivityLogData? {
+        return try {
+            val fileName = "activity_log.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, ActivityLogData::class.java)
+            } else {
+                // File doesn't exist, return empty
+                ActivityLogData(logs = emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading activity logs from Drive", e)
+            null
         }
     }
 

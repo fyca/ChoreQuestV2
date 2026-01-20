@@ -93,6 +93,10 @@ class LoginViewModel @Inject constructor(
                             syncRepository.updateLastSyncTime(System.currentTimeMillis())
                         }
                         
+                        // Schedule periodic background sync (every 15 minutes)
+                        // Safe to call even if already scheduled (uses KEEP policy)
+                        syncManager.scheduleSyncWork()
+                        
                         // Trigger immediate sync using SyncManager (won't be cancelled)
                         android.util.Log.d("LoginViewModel", "Triggering immediate sync after login...")
                         syncManager.triggerImmediateSync()

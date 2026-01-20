@@ -345,9 +345,9 @@ private fun RewardMarketplaceCard(
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(
+                    OutlinedText(
                         text = "${reward.pointCost}",
-                        style = MaterialTheme.typography.titleMedium,
+                        fontSize = MaterialTheme.typography.titleMedium.fontSize,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )

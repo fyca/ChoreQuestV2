@@ -256,8 +256,13 @@ class AuthRepository @Inject constructor(
                                 return@flow
                             }
                             
-                            // Update cached user
-                            userDao.insertUser(user.toEntity())
+                            // Update cached users - save all users, not just the current one
+                            val allUsers = usersData.users
+                            userDao.deleteAllUsers()
+                            if (allUsers.isNotEmpty()) {
+                                userDao.insertUsers(allUsers.map { it.toEntity() })
+                            }
+                            android.util.Log.d(TAG, "Saved ${allUsers.size} users to local cache")
                             
                             android.util.Log.d(TAG, "Session validated successfully via Drive API")
                             emit(Result.Success(user))

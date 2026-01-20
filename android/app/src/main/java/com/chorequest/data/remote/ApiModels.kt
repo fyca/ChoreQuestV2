@@ -293,7 +293,8 @@ data class CreateUserRequest(
     val role: UserRole,
     val canEarnPoints: Boolean = true,
     val avatarUrl: String? = null,
-    val birthdate: String? = null // ISO 8601 date string (YYYY-MM-DD), only for children
+    val birthdate: String? = null, // ISO 8601 date string (YYYY-MM-DD), only for children
+    val ownerEmail: String? = null // Email of primary parent (needed to identify which Drive to access)
 )
 
 /**

@@ -42,7 +42,7 @@ object AppModule {
     fun provideGson(): Gson {
         return GsonBuilder()
             .setLenient()
-            .registerTypeAdapter(UserRole::class.java, UserRoleDeserializer())
+            .registerTypeAdapter(UserRole::class.java, com.chorequest.data.remote.UserRoleTypeAdapter())
             .registerTypeAdapter(ChoreStatus::class.java, ChoreStatusDeserializer())
             .registerTypeAdapter(ActivityActionType::class.java, ActivityActionTypeDeserializer())
             .registerTypeAdapter(DeviceType::class.java, DeviceTypeDeserializer())

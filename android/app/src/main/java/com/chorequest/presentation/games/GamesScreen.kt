@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chorequest.presentation.components.ChoreQuestTopAppBar
+import com.chorequest.presentation.components.OutlinedText
 import com.chorequest.presentation.theme.*
 
 /**
@@ -202,17 +203,17 @@ private fun GameCard(
                     fontSize = 56.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
+                OutlinedText(
                     text = game.title,
-                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = MaterialTheme.typography.titleMedium.fontSize,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
+                OutlinedText(
                     text = game.description,
-                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = MaterialTheme.typography.bodySmall.fontSize,
                     color = Color.White.copy(alpha = 0.9f),
                     textAlign = TextAlign.Center
                 )
@@ -236,15 +237,15 @@ private fun GameCard(
                             modifier = Modifier.size(40.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(
+                        OutlinedText(
                             text = "${game.requiredPoints} pts",
-                            style = MaterialTheme.typography.labelLarge,
+                            fontSize = MaterialTheme.typography.labelLarge.fontSize,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        Text(
+                        OutlinedText(
                             text = "to unlock",
-                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = MaterialTheme.typography.labelSmall.fontSize,
                             color = Color.White.copy(alpha = 0.8f)
                         )
                     }

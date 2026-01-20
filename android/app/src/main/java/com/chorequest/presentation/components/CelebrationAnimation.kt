@@ -239,7 +239,7 @@ private fun PointsEarnedDisplay(points: Int) {
             color = Color(0xFFFFD700)
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
+        OutlinedText(
             text = "Great Job!",
             fontSize = 32.sp,
             fontWeight = FontWeight.Bold,

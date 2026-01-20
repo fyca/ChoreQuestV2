@@ -26,6 +26,8 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_ROCK_PAPER_SCISSORS_HIGH_SCORE = "rock_paper_scissors_high_score"
         private const val KEY_ROCK_PAPER_SCISSORS_DIFFICULTY = "rock_paper_scissors_difficulty"
         private const val KEY_SOUND_ENABLED = "sound_enabled"
+        private const val KEY_TIC_TAC_TOE_FLIP_MODE = "tic_tac_toe_flip_mode" // "single" or "entire"
+        private const val KEY_TIC_TAC_TOE_WIN_CONDITION = "tic_tac_toe_win_condition" // 3, 4, or 5
     }
 
     // Tic-Tac-Toe High Score
@@ -116,5 +118,23 @@ class GamePreferencesManager @Inject constructor(
 
     fun setSoundEnabled(enabled: Boolean) {
         sharedPreferences.edit().putBoolean(KEY_SOUND_ENABLED, enabled).apply()
+    }
+
+    // Tic-Tac-Toe Flip Mode (only for FLIP difficulty)
+    fun getTicTacToeFlipMode(): String {
+        return sharedPreferences.getString(KEY_TIC_TAC_TOE_FLIP_MODE, "entire") ?: "entire"
+    }
+
+    fun saveTicTacToeFlipMode(flipMode: String) {
+        sharedPreferences.edit().putString(KEY_TIC_TAC_TOE_FLIP_MODE, flipMode).apply()
+    }
+
+    // Tic-Tac-Toe Win Condition (only for hard/flip difficulties)
+    fun getTicTacToeWinCondition(): Int {
+        return sharedPreferences.getInt(KEY_TIC_TAC_TOE_WIN_CONDITION, 0) // 0 means use boardSize
+    }
+
+    fun saveTicTacToeWinCondition(winCondition: Int) {
+        sharedPreferences.edit().putInt(KEY_TIC_TAC_TOE_WIN_CONDITION, winCondition).apply()
     }
 }

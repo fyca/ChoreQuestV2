@@ -33,6 +33,9 @@ fun EditProfileScreen(
     var selectedTheme by remember { mutableStateOf<ThemeMode?>(null) }
     var selectedCelebrationStyle by remember { mutableStateOf<CelebrationStyle?>(null) }
     val updateState by viewModel.updateProfileState.collectAsState()
+    
+    // Store original theme to detect changes after update
+    var originalTheme by remember { mutableStateOf<ThemeMode?>(null) }
 
     // Update fields when user loads
     LaunchedEffect(user) {
@@ -43,6 +46,10 @@ fun EditProfileScreen(
             soundEffectsEnabled = currentUser.settings.soundEffects
             selectedTheme = currentUser.settings.theme
             selectedCelebrationStyle = currentUser.settings.celebrationStyle
+            // Store original theme when user first loads
+            if (originalTheme == null) {
+                originalTheme = currentUser.settings.theme
+            }
         }
     }
 
@@ -53,10 +60,10 @@ fun EditProfileScreen(
     LaunchedEffect(updateState) {
         when (updateState) {
             is UpdateProfileState.Success -> {
-                // Check if theme changed
-                val currentUser = user
-                val themeChanged = currentUser != null && 
-                    (selectedTheme != currentUser.settings.theme)
+                // Check if theme changed by comparing with original theme
+                val themeChanged = originalTheme != null && 
+                    selectedTheme != null && 
+                    (selectedTheme != originalTheme)
                 
                 if (themeChanged) {
                     // Show message that app needs to refresh

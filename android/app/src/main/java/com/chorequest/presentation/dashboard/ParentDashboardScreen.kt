@@ -508,9 +508,9 @@ private fun PendingRewardApprovalCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
+                        OutlinedText(
                             text = "${redemption.pointCost}",
-                            style = MaterialTheme.typography.titleSmall,
+                            fontSize = MaterialTheme.typography.titleSmall.fontSize,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )

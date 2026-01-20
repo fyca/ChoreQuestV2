@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.chorequest.presentation.components.OutlinedText
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
@@ -174,17 +175,17 @@ fun QRScannerScreen(
                                 .padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(
+                            OutlinedText(
                                 text = "Point camera at QR code",
-                                style = MaterialTheme.typography.titleMedium,
+                                fontSize = MaterialTheme.typography.titleMedium.fontSize,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
                                 textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text(
+                            OutlinedText(
                                 text = "Ask a parent for your QR code",
-                                style = MaterialTheme.typography.bodyMedium,
+                                fontSize = MaterialTheme.typography.bodyMedium.fontSize,
                                 color = Color.White.copy(alpha = 0.8f),
                                 textAlign = TextAlign.Center
                             )

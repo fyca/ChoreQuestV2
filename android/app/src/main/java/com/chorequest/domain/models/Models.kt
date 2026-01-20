@@ -265,7 +265,8 @@ data class Family(
     val members: List<User>,
     val inviteCodes: List<InviteCode>,
     val createdAt: String,
-    val settings: FamilySettings
+    val settings: FamilySettings,
+    val metadata: SyncMetadata? = null // Optional metadata for tracking changes (matches Apps Script structure)
 )
 
 data class InviteCode(

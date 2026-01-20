@@ -109,7 +109,7 @@ function createFamilyMember(data) {
     Logger.log('canEarnPoints value (from data object): ' + data.canEarnPoints);
     Logger.log('canEarnPoints type: ' + typeof data.canEarnPoints);
     
-    const { parentUserId, name, role, avatarUrl, birthdate } = data;
+    const { parentUserId, name, role, avatarUrl, birthdate, ownerEmail: requestOwnerEmail } = data;
     // Get canEarnPoints directly from data object to avoid destructuring issues
     const canEarnPoints = data.canEarnPoints;
     
@@ -147,15 +147,45 @@ function createFamilyMember(data) {
     }
     Logger.log('createFamilyMember: Final canEarnPoints value that will be saved: ' + shouldEarnPoints);
     
-    Logger.log('Getting family info (ownerEmail, folderId, accessToken)...');
-    const familyInfo = getFamilyInfoForUser();
+    // Get family info - use ownerEmail from request if provided, otherwise fall back to getFamilyInfoForUser()
+    let ownerEmail, folderId, accessToken;
     
-    if (!familyInfo) {
-      Logger.log('ERROR: Could not get family info');
-      return createResponse({ error: 'Family data not found or not accessible' }, 500);
+    if (requestOwnerEmail) {
+      Logger.log('Using ownerEmail from request: ' + requestOwnerEmail);
+      // Get access token from user properties
+      const userProps = PropertiesService.getUserProperties();
+      const accessTokenKey = 'ACCESS_TOKEN_' + requestOwnerEmail;
+      accessToken = userProps.getProperty(accessTokenKey);
+      
+      if (!accessToken) {
+        Logger.log('ERROR: No access token found for ownerEmail: ' + requestOwnerEmail);
+        return createResponse({ error: 'Drive access not authorized. Please authorize the app to access your Google Drive.' }, 401);
+      }
+      
+      // Get folder ID using the access token
+      try {
+        folderId = getChoreQuestFolderV3(requestOwnerEmail, accessToken);
+        ownerEmail = requestOwnerEmail;
+        Logger.log('Family info retrieved from request - ownerEmail: ' + ownerEmail + ', folderId: ' + folderId);
+      } catch (error) {
+        Logger.log('ERROR: Could not get folder ID for ownerEmail: ' + requestOwnerEmail + ', error: ' + error.toString());
+        return createResponse({ error: 'Family data not found or not accessible' }, 500);
+      }
+    } else {
+      // Fall back to old method for backward compatibility
+      Logger.log('No ownerEmail in request, using getFamilyInfoForUser()...');
+      const familyInfo = getFamilyInfoForUser();
+      
+      if (!familyInfo) {
+        Logger.log('ERROR: Could not get family info');
+        return createResponse({ error: 'Family data not found or not accessible. Please provide ownerEmail in request.' }, 500);
+      }
+      
+      ownerEmail = familyInfo.ownerEmail;
+      folderId = familyInfo.folderId;
+      accessToken = familyInfo.accessToken;
+      Logger.log('Family info retrieved from getFamilyInfoForUser - ownerEmail: ' + ownerEmail + ', folderId: ' + folderId);
     }
-    
-    const { ownerEmail, folderId, accessToken } = familyInfo;
     Logger.log('Family info retrieved - ownerEmail: ' + ownerEmail + ', folderId: ' + folderId + ', hasAccessToken: ' + (accessToken ? 'yes' : 'no'));
     
     Logger.log('Loading users and family data...');

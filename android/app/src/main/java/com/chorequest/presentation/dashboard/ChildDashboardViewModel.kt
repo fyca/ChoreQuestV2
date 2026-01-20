@@ -16,6 +16,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /**
@@ -93,9 +95,19 @@ class ChildDashboardViewModel @Inject constructor(
                         it.status == com.chorequest.domain.models.ChoreStatus.PENDING ||
                         it.status == com.chorequest.domain.models.ChoreStatus.IN_PROGRESS
                     }
+                    // Count only chores completed today (check completedAt date)
+                    val today = LocalDate.now()
                     val completedToday = myChores.filter { 
-                        it.status == com.chorequest.domain.models.ChoreStatus.COMPLETED ||
-                        it.status == com.chorequest.domain.models.ChoreStatus.VERIFIED
+                        val isCompleted = it.status == com.chorequest.domain.models.ChoreStatus.COMPLETED ||
+                                         it.status == com.chorequest.domain.models.ChoreStatus.VERIFIED
+                        if (!isCompleted) return@filter false
+                        
+                        // Check if completedAt is today
+                        val completedAt = it.completedAt
+                        if (completedAt == null) return@filter false
+                        
+                        val completedDate = parseDate(completedAt)
+                        completedDate != null && completedDate == today
                     }.size
 
                     // Get unassigned chores (available for any user to complete) - "Earn Extra Points"
@@ -175,6 +187,25 @@ class ChildDashboardViewModel @Inject constructor(
             authRepository.logout()
             
             onLogoutComplete()
+        }
+    }
+    
+    /**
+     * Parse date string to LocalDate
+     * Handles both YYYY-MM-DD format and ISO datetime strings
+     */
+    private fun parseDate(dateString: String?): LocalDate? {
+        if (dateString == null) return null
+        return try {
+            // Try YYYY-MM-DD format first
+            if (dateString.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
+                LocalDate.parse(dateString, DateTimeFormatter.ISO_DATE)
+            } else {
+                // Try ISO format
+                java.time.Instant.parse(dateString).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 }

@@ -23,6 +23,8 @@ import com.chorequest.data.local.SessionManager
 import com.chorequest.domain.models.Chore
 import com.chorequest.domain.models.ChoreStatus
 import com.chorequest.presentation.components.*
+import com.chorequest.utils.ChoreDateUtils
+import kotlinx.coroutines.delay
 
 /**
  * My chores screen for children
@@ -34,6 +36,11 @@ fun MyChoresScreen(
     onNavigateToCompleteChore: (String) -> Unit,
     viewModel: ChoreViewModel = hiltViewModel()
 ) {
+    // Refresh chores when screen is opened (triggers expired removal and current creation)
+    LaunchedEffect(Unit) {
+        viewModel.loadAllChores()
+    }
+    
     val allChores by viewModel.allChores.collectAsState()
     val currentUserId = viewModel.currentUserId
     
@@ -128,6 +135,29 @@ private fun ChildChoreCard(
     onClick: () -> Unit
 ) {
     val canComplete = chore.status == ChoreStatus.PENDING
+    
+    // Update countdown every minute
+    var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    
+    LaunchedEffect(chore.id, chore.dueDate, chore.status) {
+        if (chore.dueDate != null && chore.status == ChoreStatus.PENDING) {
+            while (true) {
+                delay(60000) // Update every minute
+                currentTime = System.currentTimeMillis()
+                // Check if we should stop updating
+                val remaining = ChoreDateUtils.calculateTimeRemaining(chore.dueDate)
+                if (remaining == null) break // Expired or invalid
+            }
+        }
+    }
+    
+    val timeRemaining = remember(chore.dueDate, currentTime, chore.status) {
+        if (chore.status == ChoreStatus.PENDING && chore.dueDate != null) {
+            ChoreDateUtils.calculateTimeRemaining(chore.dueDate)
+        } else {
+            null
+        }
+    }
 
     Card(
         modifier = Modifier
@@ -195,6 +225,40 @@ private fun ChildChoreCard(
                             text = "${chore.subtasks.count { it.completed }}/${chore.subtasks.size} tasks done",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.Black.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+                
+                // Time remaining countdown
+                if (timeRemaining != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = if (timeRemaining.isVeryUrgent) {
+                                MaterialTheme.colorScheme.error
+                            } else if (timeRemaining.isUrgent) {
+                                Color(0xFFFF6B6B)
+                            } else {
+                                Color.Black.copy(alpha = 0.6f)
+                            }
+                        )
+                        Text(
+                            text = "Expires in ${timeRemaining.formatted}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (timeRemaining.isVeryUrgent) {
+                                MaterialTheme.colorScheme.error
+                            } else if (timeRemaining.isUrgent) {
+                                Color(0xFFFF6B6B)
+                            } else {
+                                Color.Black.copy(alpha = 0.6f)
+                            },
+                            fontWeight = if (timeRemaining.isUrgent) FontWeight.SemiBold else FontWeight.Normal
                         )
                     }
                 }

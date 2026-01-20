@@ -133,6 +133,59 @@ class TokenManager @Inject constructor(
     }
 
     /**
+     * Force refresh the access token by clearing stored token and refreshing via Apps Script
+     * Use this when a 401 error is encountered
+     */
+    suspend fun forceRefreshToken(): String? = withContext(Dispatchers.IO) {
+        try {
+            val session = sessionManager.loadSession() ?: run {
+                Log.w(TAG, "No session found for token refresh")
+                return@withContext null
+            }
+
+            // Clear the stored token to force refresh
+            sharedPreferences.edit()
+                .remove(KEY_ACCESS_TOKEN)
+                .remove(KEY_TOKEN_EXPIRY)
+                .apply()
+            Log.d(TAG, "Cleared stored token, refreshing via Apps Script")
+
+            // Refresh via Apps Script
+            try {
+                val response = api.refreshAccessToken(
+                    userId = session.userId,
+                    token = session.authToken
+                )
+                
+                if (response.isSuccessful && response.body()?.success == true) {
+                    val newAccessToken = response.body()?.accessToken
+                    val expiresIn = response.body()?.expiresIn ?: 3600
+                    
+                    if (newAccessToken != null) {
+                        // Store the new token
+                        storeAccessToken(newAccessToken, expiresIn.toLong())
+                        Log.d(TAG, "Token force-refreshed successfully via Apps Script")
+                        return@withContext newAccessToken
+                    } else {
+                        Log.w(TAG, "Token refresh succeeded but no access token in response")
+                    }
+                } else {
+                    val errorMsg = response.body()?.error ?: response.message()
+                    Log.w(TAG, "Token refresh failed: $errorMsg")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error force-refreshing token via Apps Script", e)
+            }
+            
+            Log.d(TAG, "Token force-refresh failed")
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in forceRefreshToken", e)
+            null
+        }
+    }
+
+    /**
      * Clear stored tokens
      */
     fun clearTokens() {

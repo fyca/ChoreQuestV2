@@ -57,12 +57,780 @@ class ChoreRepository @Inject constructor(
     }
     
     /**
+     * Ensure chores are up to date using Google Drive API directly
+     * This removes expired chores and creates current cycle instances
+     * On 401 errors, refreshes token and retries, falls back to Apps Script if refresh fails
+     */
+    suspend fun ensureChoresUpToDate() {
+        try {
+            val session = sessionManager.loadSession() ?: return
+            var accessToken = tokenManager.getValidAccessToken()
+            
+            if (accessToken == null) {
+                Log.w(TAG, "No access token available, falling back to Apps Script for ensureChoresUpToDate")
+                ensureChoresUpToDateViaAppsScript(session)
+                return
+            }
+            
+            Log.d(TAG, "Ensuring chores are up to date using Drive API (expired removal, current creation)")
+            
+            val folderId = session.driveWorkbookLink
+            
+            // Load templates, users, and chores from Drive
+            // If we get a 401, refresh token and retry once
+            val templatesData = try {
+                readTemplatesFromDrive(accessToken, folderId)
+            } catch (e: Exception) {
+                if (isUnauthorizedError(e)) {
+                    Log.w(TAG, "Drive API authentication failed (401) when reading templates, refreshing token and retrying")
+                    val refreshedToken = tokenManager.forceRefreshToken()
+                    if (refreshedToken != null) {
+                        accessToken = refreshedToken
+                        // Retry with new token
+                        try {
+                            readTemplatesFromDrive(accessToken, folderId)
+                        } catch (retryE: Exception) {
+                            if (isUnauthorizedError(retryE)) {
+                                Log.w(TAG, "Token refresh failed or still unauthorized, falling back to Apps Script")
+                                ensureChoresUpToDateViaAppsScript(session)
+                                return
+                            }
+                            Log.e(TAG, "Error reading templates from Drive after token refresh", retryE)
+                            return
+                        }
+                    } else {
+                        Log.w(TAG, "Token refresh failed, falling back to Apps Script")
+                        ensureChoresUpToDateViaAppsScript(session)
+                        return
+                    }
+                } else {
+                    Log.e(TAG, "Error reading templates from Drive", e)
+                    return
+                }
+            } ?: run {
+                Log.d(TAG, "No templates found, skipping ensureChoresUpToDate")
+                return
+            }
+            
+            if (templatesData.templates.isNullOrEmpty()) {
+                Log.d(TAG, "No templates found, skipping ensureChoresUpToDate")
+                return
+            }
+            
+            val usersData = try {
+                readUsersFromDrive(accessToken, folderId)
+            } catch (e: Exception) {
+                if (isUnauthorizedError(e)) {
+                    Log.w(TAG, "Drive API authentication failed (401), refreshing token and retrying")
+                    val refreshedToken = tokenManager.forceRefreshToken()
+                    if (refreshedToken != null) {
+                        accessToken = refreshedToken
+                        // Retry with new token
+                        try {
+                            readUsersFromDrive(accessToken, folderId) ?: run {
+                                Log.d(TAG, "No users found after token refresh, skipping ensureChoresUpToDate")
+                                return
+                            }
+                        } catch (retryE: Exception) {
+                            if (isUnauthorizedError(retryE)) {
+                                Log.w(TAG, "Token refresh failed or still unauthorized, falling back to Apps Script")
+                                ensureChoresUpToDateViaAppsScript(session)
+                                return
+                            }
+                            Log.e(TAG, "Error reading users from Drive after token refresh", retryE)
+                            return
+                        }
+                    } else {
+                        Log.w(TAG, "Token refresh failed, falling back to Apps Script")
+                        ensureChoresUpToDateViaAppsScript(session)
+                        return
+                    }
+                } else {
+                    Log.e(TAG, "Error reading users from Drive", e)
+                    return
+                }
+            } ?: run {
+                Log.d(TAG, "No users found, skipping ensureChoresUpToDate")
+                return
+            }
+            
+            if (usersData.users.isEmpty()) {
+                Log.d(TAG, "No users found, skipping ensureChoresUpToDate")
+                return
+            }
+            
+            val choresData = try {
+                readChoresFromDrive(accessToken, folderId) ?: ChoresData(chores = emptyList())
+            } catch (e: Exception) {
+                if (isUnauthorizedError(e)) {
+                    Log.w(TAG, "Drive API authentication failed (401), refreshing token and retrying")
+                    val refreshedToken = tokenManager.forceRefreshToken()
+                    if (refreshedToken != null) {
+                        accessToken = refreshedToken
+                        // Retry with new token
+                        try {
+                            readChoresFromDrive(accessToken, folderId) ?: ChoresData(chores = emptyList())
+                        } catch (retryE: Exception) {
+                            if (isUnauthorizedError(retryE)) {
+                                Log.w(TAG, "Token refresh failed or still unauthorized, falling back to Apps Script")
+                                ensureChoresUpToDateViaAppsScript(session)
+                                return
+                            }
+                            Log.e(TAG, "Error reading chores from Drive after token refresh", retryE)
+                            ChoresData(chores = emptyList())
+                        }
+                    } else {
+                        Log.w(TAG, "Token refresh failed, falling back to Apps Script")
+                        ensureChoresUpToDateViaAppsScript(session)
+                        return
+                    }
+                } else {
+                    Log.e(TAG, "Error reading chores from Drive", e)
+                    ChoresData(chores = emptyList())
+                }
+            } ?: ChoresData(chores = emptyList())
+            
+            var hasChanges = false
+            var templatesNeedSaving = false
+            val today = java.time.LocalDate.now()
+            Log.d(TAG, "Starting ensureChoresUpToDate: today=$today, total chores=${choresData.chores.size}, total templates=${templatesData.templates.size}")
+            
+            // Process each template
+            val updatedTemplates = templatesData.templates.toMutableList()
+            val updatedChores = choresData.chores.toMutableList()
+            
+            // Log all chores to see what we're working with
+            Log.d(TAG, "All chores in system:")
+            for (chore in updatedChores) {
+                Log.d(TAG, "  Chore: id=${chore.id}, title=${chore.title}, templateId=${chore.templateId}, cycleId=${chore.cycleId}, dueDate=${chore.dueDate}, status=${chore.status}")
+            }
+            
+            // Also check for chores with templateIds that don't match any template
+            val allTemplateIds = templatesData.templates.map { it.id }.toSet()
+            val orphanedChores = updatedChores.filter { 
+                it.templateId != null && it.templateId !in allTemplateIds 
+            }
+            if (orphanedChores.isNotEmpty()) {
+                Log.w(TAG, "Found ${orphanedChores.size} chores with templateIds that don't match any template:")
+                for (chore in orphanedChores) {
+                    Log.w(TAG, "  Orphaned chore: id=${chore.id}, title=${chore.title}, templateId=${chore.templateId}, dueDate=${chore.dueDate}, status=${chore.status}")
+                }
+            }
+            
+            for (template in templatesData.templates) {
+                if (template.recurring == null) continue
+                
+                val frequency = template.recurring.frequency
+                val currentCycleId = getCurrentCycleIdentifier(frequency)
+                
+                Log.d(TAG, "Processing template ${template.id} (${template.title}), currentCycleId=$currentCycleId, today=$today")
+                
+                // Find all chores for this template first
+                val templateChores = updatedChores.filter { it.templateId == template.id }
+                Log.d(TAG, "Found ${templateChores.size} chores for template ${template.id}")
+                
+                // Find expired instances (dueDate < today, not completed/verified)
+                val expiredInstances = templateChores.filter { chore ->
+                    Log.d(TAG, "Checking chore ${chore.id} (title=${chore.title}, templateId=${chore.templateId}, cycleId=${chore.cycleId}, status=${chore.status})")
+                    
+                    if (chore.dueDate == null) {
+                        Log.d(TAG, "  -> Chore ${chore.id} has no dueDate, skipping")
+                        return@filter false
+                    }
+                    
+                    Log.d(TAG, "  -> Chore ${chore.id} dueDate string: '${chore.dueDate}'")
+                    
+                    if (chore.status == ChoreStatus.COMPLETED || chore.status == ChoreStatus.VERIFIED) {
+                        Log.d(TAG, "  -> Chore ${chore.id} is ${chore.status}, skipping")
+                        return@filter false
+                    }
+                    
+                    // Parse and normalize due date
+                    val choreDueDate = parseDate(chore.dueDate)
+                    if (choreDueDate == null) {
+                        Log.w(TAG, "  -> Chore ${chore.id} has invalid dueDate: '${chore.dueDate}', skipping")
+                        return@filter false
+                    }
+                    
+                    Log.d(TAG, "  -> Chore ${chore.id} parsed dueDate: $choreDueDate, today: $today")
+                    
+                    val isExpired = choreDueDate.isBefore(today)
+                    if (isExpired) {
+                        Log.d(TAG, "  -> Chore ${chore.id} IS EXPIRED: dueDate=$choreDueDate < today=$today")
+                    } else {
+                        Log.d(TAG, "  -> Chore ${chore.id} is NOT expired: dueDate=$choreDueDate >= today=$today")
+                    }
+                    
+                    isExpired
+                }
+                
+                Log.d(TAG, "Found ${expiredInstances.size} expired instances for template ${template.id}")
+                
+                // Remove expired instances
+                var removedCurrentCycleInstance = false
+                for (expiredInstance in expiredInstances) {
+                    val isCurrentCycle = expiredInstance.cycleId == currentCycleId
+                    if (isCurrentCycle) {
+                        removedCurrentCycleInstance = true
+                    }
+                    val removed = updatedChores.removeAll { it.id == expiredInstance.id }
+                    if (removed) {
+                        hasChanges = true
+                        Log.d(TAG, "Removed expired chore: ${expiredInstance.id} (cycleId=${expiredInstance.cycleId}, dueDate=${expiredInstance.dueDate}, title=${expiredInstance.title})")
+                        
+                        // Log activity for expired chore removal
+                        logActivityForChore(
+                            accessToken = accessToken,
+                            folderId = folderId,
+                            actionType = "chore_deleted",
+                            choreId = expiredInstance.id,
+                            choreTitle = expiredInstance.title,
+                            details = mapOf(
+                                "dueDate" to (expiredInstance.dueDate ?: ""),
+                                "cycleId" to (expiredInstance.cycleId ?: ""),
+                                "reason" to "Expired (system cleanup)"
+                            )
+                        )
+                    } else {
+                        Log.w(TAG, "Failed to remove expired chore: ${expiredInstance.id} (not found in list)")
+                    }
+                }
+                
+                // Check if instance exists for current cycle
+                val instanceExists = updatedChores.any { 
+                    it.templateId == template.id && it.cycleId == currentCycleId 
+                }
+                
+                // Check if there's a valid (non-expired) instance for current cycle
+                val hasValidCurrentCycleInstance = updatedChores.any { chore ->
+                    if (chore.templateId != template.id || chore.cycleId != currentCycleId) return@any false
+                    val choreDueDate = parseDate(chore.dueDate) ?: return@any false
+                    choreDueDate >= today
+                }
+                
+                // Get template's lastCycleId
+                val templateLastCycleId = template.lastCycleId
+                
+                // Determine if we should create a new instance
+                // Only create if:
+                // 1. We removed an expired instance for current cycle (need to recreate), OR
+                // 2. No instance exists for current cycle AND template's lastCycleId doesn't match (new cycle or first time)
+                //    BUT: If lastCycleId is null, only create if we removed a current cycle instance (don't create on first run)
+                // 3. AND there's no valid (non-expired) instance for current cycle
+                // 4. AND it's not already completed for current cycle
+                val shouldCreateInstance = (
+                    removedCurrentCycleInstance || 
+                    (!instanceExists && templateLastCycleId != null && templateLastCycleId != currentCycleId)
+                ) &&
+                !hasValidCurrentCycleInstance &&
+                !isCompletedForCycle(template.id, currentCycleId, updatedChores)
+                
+                if (shouldCreateInstance) {
+                    val newInstance = createChoreInstanceFromTemplate(template, frequency)
+                    if (newInstance != null) {
+                        updatedChores.add(newInstance)
+                        hasChanges = true
+                        
+                        // Update template's lastCycleId and lastDueDate
+                        val templateIndex = updatedTemplates.indexOfFirst { it.id == template.id }
+                        if (templateIndex != -1) {
+                            updatedTemplates[templateIndex] = updatedTemplates[templateIndex].copy(
+                                lastCycleId = newInstance.cycleId,
+                                lastDueDate = newInstance.dueDate
+                            )
+                            templatesNeedSaving = true
+                        }
+                        
+                        Log.d(TAG, "Created new chore instance for template ${template.id}: ${newInstance.id} (cycleId=${newInstance.cycleId}, dueDate=${newInstance.dueDate})")
+                        
+                        // Log activity for new chore creation
+                        logActivityForChore(
+                            accessToken = accessToken,
+                            folderId = folderId,
+                            actionType = "chore_created",
+                            choreId = newInstance.id,
+                            choreTitle = newInstance.title,
+                            details = mapOf(
+                                "dueDate" to (newInstance.dueDate ?: ""),
+                                "cycleId" to (newInstance.cycleId ?: ""),
+                                "points" to newInstance.pointValue,
+                                "reason" to "Recurring chore instance created (system)"
+                            )
+                        )
+                    }
+                }
+            }
+            
+            // Handle expired chores without templateId (orphaned recurring chores)
+            // These are chores that were created before templateId was added, or somehow lost their templateId
+            val orphanedExpiredChores = updatedChores.filter { chore ->
+                // Must not have templateId
+                if (chore.templateId != null) return@filter false
+                // Must have a dueDate
+                if (chore.dueDate == null) return@filter false
+                // Must not be completed/verified
+                if (chore.status == ChoreStatus.COMPLETED || chore.status == ChoreStatus.VERIFIED) return@filter false
+                // Must be expired
+                val choreDueDate = parseDate(chore.dueDate) ?: return@filter false
+                choreDueDate.isBefore(today)
+            }
+            
+            if (orphanedExpiredChores.isNotEmpty()) {
+                Log.d(TAG, "Found ${orphanedExpiredChores.size} expired orphaned chores (no templateId)")
+                
+                for (orphanedChore in orphanedExpiredChores) {
+                    // Try to match to a template by title
+                    val matchingTemplate = templatesData.templates?.find { 
+                        it.recurring != null && it.title == orphanedChore.title 
+                    }
+                    
+                    if (matchingTemplate != null) {
+                        Log.d(TAG, "Matched orphaned expired chore '${orphanedChore.title}' to template ${matchingTemplate.id}, removing expired instance")
+                    } else {
+                        Log.d(TAG, "Orphaned expired chore '${orphanedChore.title}' has no matching template, removing anyway")
+                    }
+                    
+                    // Remove the expired orphaned chore
+                    updatedChores.removeAll { it.id == orphanedChore.id }
+                    hasChanges = true
+                    Log.d(TAG, "Removed expired orphaned chore: ${orphanedChore.id} (title=${orphanedChore.title}, dueDate=${orphanedChore.dueDate})")
+                    
+                    // Log activity for expired chore removal
+                    logActivityForChore(
+                        accessToken = accessToken,
+                        folderId = folderId,
+                        actionType = "chore_deleted",
+                        choreId = orphanedChore.id,
+                        choreTitle = orphanedChore.title,
+                        details = mapOf(
+                            "dueDate" to (orphanedChore.dueDate ?: ""),
+                            "cycleId" to (orphanedChore.cycleId ?: ""),
+                            "reason" to "Expired orphaned chore (no templateId) - system cleanup"
+                        )
+                    )
+                }
+            }
+            
+            // Save templates if needed
+            if (templatesNeedSaving) {
+                val updatedTemplatesData = TemplatesData(templates = updatedTemplates, metadata = templatesData.metadata)
+                try {
+                    writeTemplatesToDrive(accessToken, folderId, updatedTemplatesData)
+                } catch (e: Exception) {
+                    if (isUnauthorizedError(e)) {
+                        Log.w(TAG, "Drive API authentication failed when saving templates, refreshing token and retrying")
+                        val refreshedToken = tokenManager.forceRefreshToken()
+                        if (refreshedToken != null) {
+                            accessToken = refreshedToken
+                            try {
+                                writeTemplatesToDrive(accessToken, folderId, updatedTemplatesData)
+                            } catch (retryE: Exception) {
+                                if (isUnauthorizedError(retryE)) {
+                                    Log.w(TAG, "Token refresh failed or still unauthorized when saving templates, falling back to Apps Script")
+                                    ensureChoresUpToDateViaAppsScript(session)
+                                    return
+                                }
+                                Log.e(TAG, "Error saving templates to Drive after token refresh", retryE)
+                            }
+                        } else {
+                            Log.w(TAG, "Token refresh failed when saving templates, falling back to Apps Script")
+                            ensureChoresUpToDateViaAppsScript(session)
+                            return
+                        }
+                    } else {
+                        Log.e(TAG, "Error saving templates to Drive", e)
+                    }
+                }
+            }
+            
+            // Save chores if changed
+            if (hasChanges) {
+                Log.d(TAG, "Saving ${updatedChores.size} chores to Drive (had ${choresData.chores.size} before)")
+                val updatedChoresData = ChoresData(chores = updatedChores, metadata = choresData.metadata)
+                try {
+                    val saved = writeChoresToDrive(accessToken, folderId, updatedChoresData)
+                    if (saved) {
+                        Log.d(TAG, "Successfully saved updated chores to Drive")
+                    } else {
+                        Log.e(TAG, "Failed to save updated chores to Drive")
+                    }
+                } catch (e: Exception) {
+                    if (isUnauthorizedError(e)) {
+                        Log.w(TAG, "Drive API authentication failed when saving chores, refreshing token and retrying")
+                        val refreshedToken = tokenManager.forceRefreshToken()
+                        if (refreshedToken != null) {
+                            accessToken = refreshedToken
+                            try {
+                                writeChoresToDrive(accessToken, folderId, updatedChoresData)
+                                Log.d(TAG, "Saved updated chores to Drive after token refresh")
+                            } catch (retryE: Exception) {
+                                if (isUnauthorizedError(retryE)) {
+                                    Log.w(TAG, "Token refresh failed or still unauthorized when saving chores, falling back to Apps Script")
+                                    ensureChoresUpToDateViaAppsScript(session)
+                                    return
+                                }
+                                Log.e(TAG, "Error saving chores to Drive after token refresh", retryE)
+                            }
+                        } else {
+                            Log.w(TAG, "Token refresh failed when saving chores, falling back to Apps Script")
+                            ensureChoresUpToDateViaAppsScript(session)
+                            return
+                        }
+                    } else {
+                        Log.e(TAG, "Error saving chores to Drive", e)
+                    }
+                }
+            } else {
+                Log.d(TAG, "No changes to save")
+            }
+            
+        } catch (e: Exception) {
+            if (isUnauthorizedError(e)) {
+                Log.w(TAG, "Drive API authentication failed, refreshing token and retrying")
+                val session = sessionManager.loadSession()
+                if (session != null) {
+                    val refreshedToken = tokenManager.forceRefreshToken()
+                    if (refreshedToken != null) {
+                        // Retry the entire operation with new token
+                        ensureChoresUpToDate()
+                    } else {
+                        Log.w(TAG, "Token refresh failed, falling back to Apps Script")
+                        ensureChoresUpToDateViaAppsScript(session)
+                    }
+                }
+                return
+            }
+            Log.e(TAG, "Error in ensureChoresUpToDate", e)
+        }
+    }
+    
+    /**
+     * Fallback: Ensure chores are up to date via Apps Script
+     * This is used when Drive API authentication fails
+     */
+    private suspend fun ensureChoresUpToDateViaAppsScript(session: com.chorequest.domain.models.DeviceSession) {
+        try {
+            Log.d(TAG, "Ensuring chores are up to date via Apps Script (fallback)")
+            // Call Apps Script getData endpoint for chores
+            // This triggers ensureRecurringChoreInstances on the backend
+            val response = api.getData(
+                path = "data",
+                action = "get",
+                type = "chores",
+                familyId = session.familyId
+            )
+            
+            if (response.isSuccessful) {
+                Log.d(TAG, "Successfully triggered ensureRecurringChoreInstances via Apps Script")
+            } else {
+                Log.w(TAG, "Failed to trigger ensureRecurringChoreInstances via Apps Script: ${response.code()}")
+            }
+        } catch (e: Exception) {
+            // Don't fail if this call fails - we can still read from Drive
+            Log.w(TAG, "Error calling Apps Script to ensure chores up to date, continuing anyway", e)
+        }
+    }
+    
+    /**
+     * Helper: Check if exception is a 401 Unauthorized error
+     */
+    private fun isUnauthorizedError(e: Exception): Boolean {
+        return when (e) {
+            is com.google.api.client.googleapis.json.GoogleJsonResponseException -> {
+                e.statusCode == 401
+            }
+            else -> {
+                val message = e.message ?: ""
+                message.contains("401") || message.contains("Unauthorized") || message.contains("Invalid Credentials")
+            }
+        }
+    }
+    
+    /**
+     * Helper: Get current cycle identifier based on frequency
+     */
+    private fun getCurrentCycleIdentifier(frequency: com.chorequest.domain.models.RecurringFrequency): String {
+        val now = java.time.LocalDate.now()
+        return when (frequency) {
+            com.chorequest.domain.models.RecurringFrequency.DAILY -> {
+                "${now.year}-${now.monthValue.toString().padStart(2, '0')}-${now.dayOfMonth.toString().padStart(2, '0')}"
+            }
+            com.chorequest.domain.models.RecurringFrequency.WEEKLY -> {
+                val weekNumber = now.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear())
+                "${now.year}-W${weekNumber.toString().padStart(2, '0')}"
+            }
+            com.chorequest.domain.models.RecurringFrequency.MONTHLY -> {
+                "${now.year}-${now.monthValue.toString().padStart(2, '0')}"
+            }
+        }
+    }
+    
+    /**
+     * Helper: Parse date string (YYYY-MM-DD or ISO format)
+     */
+    private fun parseDate(dateString: String?): java.time.LocalDate? {
+        if (dateString == null) return null
+        return try {
+            // Try YYYY-MM-DD format first
+            if (dateString.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
+                java.time.LocalDate.parse(dateString)
+            } else {
+                // Try ISO format
+                java.time.Instant.parse(dateString).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    /**
+     * Helper: Log activity for chore operations (deletion, creation)
+     */
+    private suspend fun logActivityForChore(
+        accessToken: String,
+        folderId: String,
+        actionType: String,
+        choreId: String,
+        choreTitle: String,
+        details: Map<String, Any>
+    ) {
+        try {
+            // Read existing activity log
+            val fileName = "activity_log.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            val activityLogData = if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, com.chorequest.domain.models.ActivityLogData::class.java)
+                    ?: com.chorequest.domain.models.ActivityLogData(logs = emptyList())
+            } else {
+                com.chorequest.domain.models.ActivityLogData(logs = emptyList())
+            }
+            
+            // Create new log entry
+            val logEntry = com.chorequest.domain.models.ActivityLog(
+                id = java.util.UUID.randomUUID().toString(),
+                timestamp = java.time.Instant.now().toString(),
+                actorId = "system",
+                actorName = "System",
+                actorRole = com.chorequest.domain.models.UserRole.PARENT,
+                actionType = when (actionType) {
+                    "chore_deleted" -> com.chorequest.domain.models.ActivityActionType.CHORE_DELETED
+                    "chore_created" -> com.chorequest.domain.models.ActivityActionType.CHORE_CREATED
+                    else -> com.chorequest.domain.models.ActivityActionType.CHORE_DELETED
+                },
+                targetUserId = null,
+                targetUserName = null,
+                details = com.chorequest.domain.models.ActivityDetails(
+                    choreTitle = choreTitle,
+                    choreDueDate = details["dueDate"] as? String,
+                    pointsAmount = (details["points"] as? Number)?.toInt(),
+                    reason = details["reason"] as? String
+                ),
+                referenceId = choreId,
+                referenceType = "chore",
+                metadata = com.chorequest.domain.models.ActivityMetadata(
+                    deviceType = com.chorequest.domain.models.DeviceType.ANDROID,
+                    appVersion = "1.0.0",
+                    location = null
+                )
+            )
+            
+            // Add to beginning of logs (newest first)
+            val updatedLogs = (listOf(logEntry) + (activityLogData.logs ?: emptyList()))
+                .take(1000) // Keep only last 1000 entries
+            
+            // Update metadata
+            val now = java.time.Instant.now().toString()
+            val updatedMetadata = (activityLogData.metadata ?: com.chorequest.domain.models.SyncMetadata(
+                version = 0,
+                lastModified = "",
+                lastModifiedBy = "",
+                lastSyncedAt = ""
+            )).copy(
+                lastModified = now,
+                lastModifiedBy = "system",
+                lastSyncedAt = now,
+                version = (activityLogData.metadata?.version ?: 0) + 1
+            )
+            
+            val updatedActivityLogData = com.chorequest.domain.models.ActivityLogData(
+                logs = updatedLogs,
+                metadata = updatedMetadata
+            )
+            
+            // Save back to Drive
+            val jsonContent = gson.toJson(updatedActivityLogData)
+            driveApiService.writeFileContent(accessToken, folderId, fileName, jsonContent)
+            
+            Log.d(TAG, "Logged activity: $actionType for chore $choreId")
+        } catch (e: Exception) {
+            // Don't fail the entire operation if logging fails
+            Log.w(TAG, "Failed to log activity for chore $choreId", e)
+        }
+    }
+    
+    /**
+     * Helper: Check if chore is completed for a cycle
+     */
+    private fun isCompletedForCycle(templateId: String, cycleId: String, chores: List<Chore>): Boolean {
+        return chores.any { chore ->
+            chore.templateId == templateId &&
+            chore.cycleId == cycleId &&
+            (chore.status == ChoreStatus.COMPLETED || chore.status == ChoreStatus.VERIFIED)
+        }
+    }
+    
+    
+    /**
+     * Helper: Create chore instance from template
+     */
+    private fun createChoreInstanceFromTemplate(
+        template: ChoreTemplate,
+        frequency: com.chorequest.domain.models.RecurringFrequency
+    ): Chore? {
+        try {
+            val now = java.time.LocalDate.now()
+            var dueDate: java.time.LocalDate? = null
+            
+            // If template has dueDate and no lastCycleId, use template's dueDate (for initial instance)
+            if (template.dueDate != null && template.lastCycleId == null) {
+                dueDate = parseDate(template.dueDate)
+            }
+            
+            // Calculate due date based on frequency if not set
+            if (dueDate == null) {
+                dueDate = when (frequency) {
+                    com.chorequest.domain.models.RecurringFrequency.DAILY -> now
+                    com.chorequest.domain.models.RecurringFrequency.WEEKLY -> {
+                        // Due at end of week (Sunday)
+                        val dayOfWeek = now.dayOfWeek.value % 7 // 0 = Sunday
+                        val daysUntilSunday = if (dayOfWeek == 0) 0 else 7 - dayOfWeek
+                        now.plusDays(daysUntilSunday.toLong())
+                    }
+                    com.chorequest.domain.models.RecurringFrequency.MONTHLY -> {
+                        // Due at end of month
+                        now.withDayOfMonth(now.lengthOfMonth())
+                    }
+                }
+            }
+            
+            // Ensure dueDate is not null (should never be null at this point, but check for safety)
+            val finalDueDate = dueDate ?: return null
+            
+            // Check end date
+            if (template.recurring.endDate != null) {
+                val endDate = parseDate(template.recurring.endDate)
+                if (endDate != null && endDate < finalDueDate) {
+                    return null // Past end date
+                }
+            }
+            
+            // Calculate cycle ID
+            val cycleId = getCycleIdentifier(finalDueDate, frequency)
+            
+            // Format due date as YYYY-MM-DD
+            val dueDateString = "${finalDueDate.year}-${finalDueDate.monthValue.toString().padStart(2, '0')}-${finalDueDate.dayOfMonth.toString().padStart(2, '0')}"
+            
+            // Create new chore instance
+            val newChore = Chore(
+                id = java.util.UUID.randomUUID().toString(),
+                templateId = template.id,
+                cycleId = cycleId,
+                title = template.title,
+                description = template.description,
+                assignedTo = template.assignedTo,
+                createdBy = template.createdBy,
+                pointValue = template.pointValue,
+                dueDate = dueDateString,
+                recurring = template.recurring,
+                subtasks = template.subtasks.map { subtask ->
+                    com.chorequest.domain.models.Subtask(
+                        id = subtask.id,
+                        title = subtask.title,
+                        completed = false,
+                        completedBy = null,
+                        completedAt = null
+                    )
+                },
+                status = ChoreStatus.PENDING,
+                photoProof = null,
+                completedBy = null,
+                completedAt = null,
+                verifiedBy = null,
+                verifiedAt = null,
+                createdAt = java.time.Instant.now().toString(),
+                color = template.color,
+                icon = template.icon
+            )
+            
+            // Verify templateId is set
+            if (newChore.templateId != template.id) {
+                Log.e(TAG, "ERROR: templateId not set correctly! Expected: ${template.id}, Got: ${newChore.templateId}")
+            } else {
+                Log.d(TAG, "Created new chore instance: id=${newChore.id}, templateId=${newChore.templateId}, cycleId=${newChore.cycleId}, dueDate=${newChore.dueDate}")
+            }
+            
+            return newChore
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating chore instance from template", e)
+            return null
+        }
+    }
+    
+    /**
+     * Helper: Get cycle identifier for a date and frequency
+     */
+    private fun getCycleIdentifier(date: java.time.LocalDate, frequency: com.chorequest.domain.models.RecurringFrequency): String {
+        return when (frequency) {
+            com.chorequest.domain.models.RecurringFrequency.DAILY -> {
+                "${date.year}-${date.monthValue.toString().padStart(2, '0')}-${date.dayOfMonth.toString().padStart(2, '0')}"
+            }
+            com.chorequest.domain.models.RecurringFrequency.WEEKLY -> {
+                val weekNumber = date.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear())
+                "${date.year}-W${weekNumber.toString().padStart(2, '0')}"
+            }
+            com.chorequest.domain.models.RecurringFrequency.MONTHLY -> {
+                "${date.year}-${date.monthValue.toString().padStart(2, '0')}"
+            }
+        }
+    }
+    
+    /**
+     * Helper: Read users from Drive using direct API
+     */
+    private suspend fun readUsersFromDrive(accessToken: String, folderId: String): com.chorequest.domain.models.UsersData? {
+        return try {
+            val fileName = "users.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, com.chorequest.domain.models.UsersData::class.java)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            // Re-throw 401 errors so they can be handled by caller
+            if (isUnauthorizedError(e)) {
+                throw e
+            }
+            Log.e(TAG, "Error reading users from Drive", e)
+            null
+        }
+    }
+
+    /**
      * Load chores from Drive and update local cache
+     * First ensures chores are up to date (expired removal, current creation)
      */
     private suspend fun loadChoresFromDrive() {
         try {
             val session = sessionManager.loadSession() ?: return
             val accessToken = tokenManager.getValidAccessToken()
+            
+            // First, ensure chores are up to date (triggers expired removal and current creation)
+            ensureChoresUpToDate()
             
             if (accessToken != null) {
                 try {
@@ -122,6 +890,10 @@ class ChoreRepository @Inject constructor(
                 ChoresData(chores = emptyList())
             }
         } catch (e: Exception) {
+            // Re-throw 401 errors so they can be handled by caller
+            if (isUnauthorizedError(e)) {
+                throw e
+            }
             Log.e(TAG, "Error reading chores from Drive", e)
             null
         }
@@ -158,6 +930,10 @@ class ChoreRepository @Inject constructor(
                 TemplatesData(templates = emptyList())
             }
         } catch (e: Exception) {
+            // Re-throw 401 errors so they can be handled by caller
+            if (isUnauthorizedError(e)) {
+                throw e
+            }
             Log.e(TAG, "Error reading templates from Drive", e)
             null
         }
@@ -199,6 +975,7 @@ class ChoreRepository @Inject constructor(
                     val folderId = session.driveWorkbookLink
                     
                     var templateSaved = true
+                    var template: ChoreTemplate? = null
                     
                     // If recurring, create template first
                     if (chore.recurring != null) {
@@ -206,7 +983,7 @@ class ChoreRepository @Inject constructor(
                         val templatesData = readTemplatesFromDrive(accessToken, folderId) ?: TemplatesData(templates = emptyList())
                         
                         // Create template from chore
-                        val template = ChoreTemplate(
+                        template = ChoreTemplate(
                             id = java.util.UUID.randomUUID().toString(),
                             title = chore.title,
                             description = chore.description,
@@ -238,20 +1015,57 @@ class ChoreRepository @Inject constructor(
                     // Read current chores
                     val choresData = readChoresFromDrive(accessToken, folderId) ?: ChoresData(chores = emptyList())
                     
+                    // For recurring chores, create the initial instance with templateId and cycleId
+                    val choreToAdd = if (chore.recurring != null && templateSaved && template != null) {
+                        // Create initial instance from template
+                        val initialInstance = createChoreInstanceFromTemplate(template, chore.recurring.frequency)
+                        if (initialInstance != null) {
+                            Log.d(TAG, "Created initial instance for recurring chore: id=${initialInstance.id}, templateId=${initialInstance.templateId}, cycleId=${initialInstance.cycleId}")
+                            initialInstance
+                        } else {
+                            Log.w(TAG, "Failed to create initial instance from template, using original chore")
+                            chore
+                        }
+                    } else {
+                        chore
+                    }
+                    
                     // Add new chore
-                    val updatedChores = choresData.chores + chore
+                    val updatedChores = choresData.chores + choreToAdd
                     val updatedData = choresData.copy(chores = updatedChores)
                     
                     // Write back to Drive
                     val choreSaved = writeChoresToDrive(accessToken, folderId, updatedData)
                     
                     // For recurring chores, both template and chore must be saved
-                    if (chore.recurring != null) {
+                    if (chore.recurring != null && template != null) {
                         if (templateSaved && choreSaved) {
+                            // Update template with lastCycleId and lastDueDate if we created an instance
+                            if (choreToAdd.templateId != null && choreToAdd.cycleId != null) {
+                                val templatesData = readTemplatesFromDrive(accessToken, folderId) ?: TemplatesData(templates = emptyList())
+                                val templateIndex = templatesData.templates?.indexOfFirst { it.id == template.id } ?: -1
+                                if (templateIndex != -1) {
+                                    val updatedTemplate = templatesData.templates!![templateIndex].copy(
+                                        lastCycleId = choreToAdd.cycleId,
+                                        lastDueDate = choreToAdd.dueDate
+                                    )
+                                    val updatedTemplates = templatesData.templates!!.toMutableList()
+                                    updatedTemplates[templateIndex] = updatedTemplate
+                                    val updatedTemplatesData = templatesData.copy(templates = updatedTemplates)
+                                    writeTemplatesToDrive(accessToken, folderId, updatedTemplatesData)
+                                }
+                            }
+                            
                             // Update local cache
-                            choreDao.insertChore(chore.toEntity())
-                            Log.d(TAG, "Recurring chore and template created successfully via Drive API: ${chore.id}")
-                            emit(Result.Success(chore))
+                            choreDao.insertChore(choreToAdd.toEntity())
+                            Log.d(TAG, "Recurring chore and template created successfully via Drive API: ${choreToAdd.id}")
+                            // Ensure chores are up to date (expired removal, current creation)
+                            repositoryScope.launch {
+                                ensureChoresUpToDate()
+                                // Reload chores after ensuring they're up to date
+                                loadChoresFromDrive()
+                            }
+                            emit(Result.Success(choreToAdd))
                             return@flow
                         } else {
                             Log.w(TAG, "Failed to save recurring chore (template=$templateSaved, chore=$choreSaved), falling back to Apps Script")
@@ -262,6 +1076,12 @@ class ChoreRepository @Inject constructor(
                             // Update local cache
                             choreDao.insertChore(chore.toEntity())
                             Log.d(TAG, "Chore created successfully via Drive API: ${chore.id}")
+                            // Ensure chores are up to date (expired removal, current creation)
+                            repositoryScope.launch {
+                                ensureChoresUpToDate()
+                                // Reload chores after ensuring they're up to date
+                                loadChoresFromDrive()
+                            }
                             emit(Result.Success(chore))
                             return@flow
                         } else {
@@ -304,6 +1124,12 @@ class ChoreRepository @Inject constructor(
                     // Only save to local cache AFTER successful Drive save
                     choreDao.insertChore(createdChore.toEntity())
                     Log.d(TAG, "Chore created successfully on Drive: ${createdChore.id}")
+                    // Ensure chores are up to date (expired removal, current creation)
+                    repositoryScope.launch {
+                        ensureChoresUpToDate()
+                        // Reload chores after ensuring they're up to date
+                        loadChoresFromDrive()
+                    }
                     emit(Result.Success(createdChore))
                 } else {
                     Log.w(TAG, "Drive created chore but returned null chore")
@@ -371,6 +1197,12 @@ class ChoreRepository @Inject constructor(
                             // Update local cache
                             choreDao.updateChore(chore.toEntity())
                             Log.d(TAG, "Chore updated successfully via Drive API: ${chore.id}")
+                            // Ensure chores are up to date (expired removal, current creation)
+                            repositoryScope.launch {
+                                ensureChoresUpToDate()
+                                // Reload chores after ensuring they're up to date
+                                loadChoresFromDrive()
+                            }
                             emit(Result.Success(chore))
                             return@flow
                         } else {
@@ -418,6 +1250,12 @@ class ChoreRepository @Inject constructor(
                     // Only update local cache AFTER successful Drive save
                     choreDao.updateChore(updatedChore.toEntity())
                     Log.d(TAG, "Chore updated successfully on Drive: ${updatedChore.id}")
+                    // Ensure chores are up to date (expired removal, current creation)
+                    repositoryScope.launch {
+                        ensureChoresUpToDate()
+                        // Reload chores after ensuring they're up to date
+                        loadChoresFromDrive()
+                    }
                     emit(Result.Success(updatedChore))
                 } else {
                     Log.w(TAG, "Drive updated chore but returned null chore")
@@ -483,6 +1321,12 @@ class ChoreRepository @Inject constructor(
                             // Remove from local cache
                             choreDao.deleteChore(chore.toEntity())
                             Log.d(TAG, "Chore deleted successfully via Drive API: ${chore.id}")
+                            // Ensure chores are up to date (expired removal, current creation)
+                            repositoryScope.launch {
+                                ensureChoresUpToDate()
+                                // Reload chores after ensuring they're up to date
+                                loadChoresFromDrive()
+                            }
                             emit(Result.Success(Unit))
                             return@flow
                         } else {
@@ -515,6 +1359,12 @@ class ChoreRepository @Inject constructor(
                 // Only remove from local cache AFTER successful Drive deletion
                 choreDao.deleteChore(chore.toEntity())
                 Log.d(TAG, "Chore deleted successfully on Drive: ${chore.id}")
+                // Ensure chores are up to date (expired removal, current creation)
+                repositoryScope.launch {
+                    ensureChoresUpToDate()
+                    // Reload chores after ensuring they're up to date
+                    loadChoresFromDrive()
+                }
                 emit(Result.Success(Unit))
             } else {
                 val errorBody = response.body()
@@ -588,6 +1438,12 @@ class ChoreRepository @Inject constructor(
                                 // Update local cache
                                 choreDao.updateChore(completedChore.toEntity())
                                 Log.d(TAG, "Chore completed successfully via Drive API: $choreId")
+                                // Ensure chores are up to date (expired removal, current creation)
+                                repositoryScope.launch {
+                                    ensureChoresUpToDate()
+                                    // Reload chores after ensuring they're up to date
+                                    loadChoresFromDrive()
+                                }
                                 emit(Result.Success(completedChore))
                                 return@flow
                             } else {
@@ -624,6 +1480,12 @@ class ChoreRepository @Inject constructor(
                     // Only update local cache AFTER successful Drive save
                     choreDao.updateChore(completedChore.toEntity())
                     Log.d(TAG, "Chore completed successfully on Drive: $choreId")
+                    // Ensure chores are up to date (expired removal, current creation)
+                    repositoryScope.launch {
+                        ensureChoresUpToDate()
+                        // Reload chores after ensuring they're up to date
+                        loadChoresFromDrive()
+                    }
                     emit(Result.Success(completedChore))
                 } else {
                     Log.w(TAG, "Drive completed chore but returned null chore")
@@ -711,6 +1573,12 @@ class ChoreRepository @Inject constructor(
                                 // Update local cache
                                 choreDao.updateChore(verifiedChore.toEntity())
                                 Log.d(TAG, "Chore verified successfully via Drive API: $choreId")
+                                // Ensure chores are up to date (expired removal, current creation)
+                                repositoryScope.launch {
+                                    ensureChoresUpToDate()
+                                    // Reload chores after ensuring they're up to date
+                                    loadChoresFromDrive()
+                                }
                                 emit(Result.Success(verifiedChore))
                                 return@flow
                             } else {
@@ -737,6 +1605,12 @@ class ChoreRepository @Inject constructor(
                 if (updated != null) {
                     // Update local cache
                     choreDao.updateChore(updated.toEntity())
+                    // Ensure chores are up to date (expired removal, current creation)
+                    repositoryScope.launch {
+                        ensureChoresUpToDate()
+                        // Reload chores after ensuring they're up to date
+                        loadChoresFromDrive()
+                    }
                     emit(Result.Success(updated))
                 } else {
                     emit(Result.Error("Verify succeeded but chore was missing in response"))

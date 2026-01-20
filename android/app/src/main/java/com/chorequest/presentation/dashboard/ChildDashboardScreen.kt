@@ -23,6 +23,8 @@ import com.chorequest.presentation.components.*
 import com.chorequest.domain.models.RewardRedemption
 import com.chorequest.domain.models.Reward
 import com.chorequest.domain.models.RewardRedemptionStatus
+import com.chorequest.utils.ChoreDateUtils
+import kotlinx.coroutines.delay
 
 /**
  * Child dashboard screen with colorful, playful design
@@ -585,6 +587,29 @@ private fun ChildChoreCard(
     chore: com.chorequest.domain.models.Chore,
     onClick: () -> Unit
 ) {
+    // Update countdown every minute
+    var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    
+    LaunchedEffect(chore.id, chore.dueDate, chore.status) {
+        if (chore.dueDate != null && chore.status == com.chorequest.domain.models.ChoreStatus.PENDING) {
+            while (true) {
+                delay(60000) // Update every minute
+                currentTime = System.currentTimeMillis()
+                // Check if we should stop updating
+                val remaining = ChoreDateUtils.calculateTimeRemaining(chore.dueDate)
+                if (remaining == null) break // Expired or invalid
+            }
+        }
+    }
+    
+    val timeRemaining = remember(chore.dueDate, currentTime, chore.status) {
+        if (chore.status == com.chorequest.domain.models.ChoreStatus.PENDING && chore.dueDate != null) {
+            ChoreDateUtils.calculateTimeRemaining(chore.dueDate)
+        } else {
+            null
+        }
+    }
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
@@ -627,6 +652,39 @@ private fun ChildChoreCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                     )
+                }
+                // Time remaining countdown
+                if (timeRemaining != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = if (timeRemaining.isVeryUrgent) {
+                                MaterialTheme.colorScheme.error
+                            } else if (timeRemaining.isUrgent) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                            }
+                        )
+                        Text(
+                            text = "Expires in ${timeRemaining.formatted}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (timeRemaining.isVeryUrgent) {
+                                MaterialTheme.colorScheme.error
+                            } else if (timeRemaining.isUrgent) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                            },
+                            fontWeight = if (timeRemaining.isUrgent) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
                 }
             }
 

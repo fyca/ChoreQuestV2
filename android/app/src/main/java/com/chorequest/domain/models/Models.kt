@@ -95,7 +95,9 @@ data class Chore(
     val verifiedAt: String? = null,
     val createdAt: String,
     val color: String? = null,
-    val icon: String? = null
+    val icon: String? = null,
+    val templateId: String? = null, // For recurring chores - links to template
+    val cycleId: String? = null // For recurring chores - identifies the cycle (e.g., "2024-01-15", "2024-W03", "2024-01")
 )
 
 data class RecurringSchedule(
@@ -125,7 +127,9 @@ data class ChoreTemplate(
     val subtasks: List<Subtask>,
     val createdAt: String,
     val color: String? = null,
-    val icon: String? = null
+    val icon: String? = null,
+    val lastCycleId: String? = null, // Last cycle ID for which an instance was created
+    val lastDueDate: String? = null // Last due date of created instance
 )
 
 // Reward Model

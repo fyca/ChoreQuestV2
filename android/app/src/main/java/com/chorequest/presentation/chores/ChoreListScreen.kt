@@ -31,6 +31,11 @@ fun ChoreListScreen(
     onNavigateToRecurringChoreEditor: () -> Unit = {},
     viewModel: ChoreViewModel = hiltViewModel()
 ) {
+    // Refresh chores when screen is opened (triggers expired removal and current creation)
+    LaunchedEffect(Unit) {
+        viewModel.loadAllChores()
+    }
+    
     val allChores by viewModel.allChores.collectAsState()
     var selectedFilter by remember { mutableStateOf(ChoreFilter.ALL) }
 

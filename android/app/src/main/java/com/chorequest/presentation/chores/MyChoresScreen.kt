@@ -241,22 +241,22 @@ private fun ChildChoreCard(
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = if (timeRemaining.isVeryUrgent) {
-                                MaterialTheme.colorScheme.error
+                                MaterialTheme.colorScheme.onErrorContainer
                             } else if (timeRemaining.isUrgent) {
-                                Color(0xFFFF6B6B)
+                                MaterialTheme.colorScheme.tertiary
                             } else {
-                                Color.Black.copy(alpha = 0.6f)
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             }
                         )
                         Text(
                             text = "Expires in ${timeRemaining.formatted}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (timeRemaining.isVeryUrgent) {
-                                MaterialTheme.colorScheme.error
+                                MaterialTheme.colorScheme.onErrorContainer
                             } else if (timeRemaining.isUrgent) {
-                                Color(0xFFFF6B6B)
+                                MaterialTheme.colorScheme.tertiary
                             } else {
-                                Color.Black.copy(alpha = 0.6f)
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             },
                             fontWeight = if (timeRemaining.isUrgent) FontWeight.SemiBold else FontWeight.Normal
                         )

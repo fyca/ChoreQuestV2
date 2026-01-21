@@ -72,6 +72,7 @@ export interface Chore {
 export interface RecurringSchedule {
   frequency: RecurringFrequency;
   daysOfWeek?: number[];
+  dayOfMonth?: number;
   endDate?: string;
 }
 

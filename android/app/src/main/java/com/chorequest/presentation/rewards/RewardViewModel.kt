@@ -63,12 +63,21 @@ class RewardViewModel @Inject constructor(
 
     /**
      * Load all rewards
+     * Uses local-first approach with Flow for real-time updates
+     * Triggers background sync (non-blocking) to ensure data is up-to-date
      */
     fun loadAllRewards() {
         viewModelScope.launch {
+            // Use local rewards Flow for real-time updates (local-first)
             rewardRepository.getAllRewards().collect { rewards ->
                 _allRewards.value = rewards
             }
+        }
+        
+        // Trigger background sync (non-blocking, separate coroutine)
+        // This ensures rewards are synced using Drive API first when screen opens
+        viewModelScope.launch {
+            rewardRepository.syncRewards()
         }
     }
 

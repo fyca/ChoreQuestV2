@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.catch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,6 +41,9 @@ class ChoreRepository @Inject constructor(
     }
     
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    // Mutex to prevent concurrent executions of ensureChoresUpToDate
+    private val ensureChoresUpToDateMutex = kotlinx.coroutines.sync.Mutex()
 
     /**
      * Get all chores - loads from Drive on-demand, then returns from local cache
@@ -60,8 +64,15 @@ class ChoreRepository @Inject constructor(
      * Ensure chores are up to date using Google Drive API directly
      * This removes expired chores and creates current cycle instances
      * On 401 errors, refreshes token and retries, falls back to Apps Script if refresh fails
+     * Uses a mutex to prevent concurrent executions
      */
     suspend fun ensureChoresUpToDate() {
+        // Use mutex to prevent concurrent executions
+        if (!ensureChoresUpToDateMutex.tryLock()) {
+            Log.d(TAG, "ensureChoresUpToDate already running, skipping")
+            return
+        }
+        
         try {
             val session = sessionManager.loadSession() ?: return
             var accessToken = tokenManager.getValidAccessToken()
@@ -314,13 +325,18 @@ class ChoreRepository @Inject constructor(
                 // Determine if we should create a new instance
                 // Only create if:
                 // 1. We removed an expired instance for current cycle (need to recreate), OR
-                // 2. No instance exists for current cycle AND template's lastCycleId doesn't match (new cycle or first time)
+                // 2. No instance exists for current cycle AND:
+                //    a. template's lastCycleId is null (first time), OR
+                //    b. template's lastCycleId is for a PAST cycle (need to catch up)
                 //    BUT: If lastCycleId is null, only create if we removed a current cycle instance (don't create on first run)
+                //    AND: Don't create if lastCycleId is for a FUTURE cycle (we've already moved forward)
                 // 3. AND there's no valid (non-expired) instance for current cycle
                 // 4. AND it's not already completed for current cycle
                 val shouldCreateInstance = (
                     removedCurrentCycleInstance || 
-                    (!instanceExists && templateLastCycleId != null && templateLastCycleId != currentCycleId)
+                    (!instanceExists && templateLastCycleId != null && 
+                     templateLastCycleId != currentCycleId && 
+                     isCycleIdBefore(templateLastCycleId, currentCycleId)) // Only if lastCycleId is for a PAST cycle
                 ) &&
                 !hasValidCurrentCycleInstance &&
                 !isCompletedForCycle(template.id, currentCycleId, updatedChores)
@@ -331,17 +347,20 @@ class ChoreRepository @Inject constructor(
                         updatedChores.add(newInstance)
                         hasChanges = true
                         
+                        val newInstanceCycleId = newInstance.cycleId
+                        val newInstanceIsForCurrentCycle = newInstanceCycleId == currentCycleId
+                        
                         // Update template's lastCycleId and lastDueDate
                         val templateIndex = updatedTemplates.indexOfFirst { it.id == template.id }
                         if (templateIndex != -1) {
                             updatedTemplates[templateIndex] = updatedTemplates[templateIndex].copy(
-                                lastCycleId = newInstance.cycleId,
+                                lastCycleId = newInstanceCycleId,
                                 lastDueDate = newInstance.dueDate
                             )
                             templatesNeedSaving = true
                         }
                         
-                        Log.d(TAG, "Created new chore instance for template ${template.id}: ${newInstance.id} (cycleId=${newInstance.cycleId}, dueDate=${newInstance.dueDate})")
+                        Log.d(TAG, "Created new chore instance for template ${template.id}: ${newInstance.id} (cycleId=${newInstanceCycleId}, dueDate=${newInstance.dueDate})")
                         
                         // Log activity for new chore creation
                         logActivityForChore(
@@ -352,11 +371,18 @@ class ChoreRepository @Inject constructor(
                             choreTitle = newInstance.title,
                             details = mapOf(
                                 "dueDate" to (newInstance.dueDate ?: ""),
-                                "cycleId" to (newInstance.cycleId ?: ""),
+                                "cycleId" to (newInstanceCycleId ?: ""),
                                 "points" to newInstance.pointValue,
                                 "reason" to "Recurring chore instance created (system)"
                             )
                         )
+                        
+                        // If we removed a current cycle instance but created one for a future cycle,
+                        // we've already handled the transition - don't create another instance for current cycle
+                        // This prevents duplicate instances when the due date calculation moves to the next cycle
+                        if (removedCurrentCycleInstance && !newInstanceIsForCurrentCycle) {
+                            Log.d(TAG, "Removed expired instance for current cycle ($currentCycleId) but created instance for future cycle ($newInstanceCycleId). Current cycle is now handled.")
+                        }
                     }
                 }
             }
@@ -451,6 +477,14 @@ class ChoreRepository @Inject constructor(
                     val saved = writeChoresToDrive(accessToken, folderId, updatedChoresData)
                     if (saved) {
                         Log.d(TAG, "Successfully saved updated chores to Drive")
+                        
+                        // Update local cache - delete all and reinsert to ensure deleted chores are removed
+                        choreDao.deleteAllChores()
+                        val entities = updatedChores.map { it.toEntity() }
+                        if (entities.isNotEmpty()) {
+                            choreDao.insertChores(entities)
+                        }
+                        Log.d(TAG, "Updated local cache with ${entities.size} chores (removed ${choresData.chores.size - updatedChores.size} expired/deleted)")
                     } else {
                         Log.e(TAG, "Failed to save updated chores to Drive")
                     }
@@ -461,8 +495,18 @@ class ChoreRepository @Inject constructor(
                         if (refreshedToken != null) {
                             accessToken = refreshedToken
                             try {
-                                writeChoresToDrive(accessToken, folderId, updatedChoresData)
-                                Log.d(TAG, "Saved updated chores to Drive after token refresh")
+                                val retrySaved = writeChoresToDrive(accessToken, folderId, updatedChoresData)
+                                if (retrySaved) {
+                                    Log.d(TAG, "Saved updated chores to Drive after token refresh")
+                                    
+                                    // Update local cache after retry
+                                    choreDao.deleteAllChores()
+                                    val entities = updatedChores.map { it.toEntity() }
+                                    if (entities.isNotEmpty()) {
+                                        choreDao.insertChores(entities)
+                                    }
+                                    Log.d(TAG, "Updated local cache after token refresh with ${entities.size} chores")
+                                }
                             } catch (retryE: Exception) {
                                 if (isUnauthorizedError(retryE)) {
                                     Log.w(TAG, "Token refresh failed or still unauthorized when saving chores, falling back to Apps Script")
@@ -501,6 +545,9 @@ class ChoreRepository @Inject constructor(
                 return
             }
             Log.e(TAG, "Error in ensureChoresUpToDate", e)
+        } finally {
+            // Always release the mutex
+            ensureChoresUpToDateMutex.unlock()
         }
     }
     
@@ -563,6 +610,15 @@ class ChoreRepository @Inject constructor(
                 "${now.year}-${now.monthValue.toString().padStart(2, '0')}"
             }
         }
+    }
+    
+    /**
+     * Helper: Compare two cycle IDs to determine if cycleId1 is before cycleId2
+     * Returns true if cycleId1 < cycleId2 (cycleId1 is earlier)
+     * Cycle IDs are formatted consistently and can be compared lexicographically
+     */
+    private fun isCycleIdBefore(cycleId1: String, cycleId2: String): Boolean {
+        return cycleId1 < cycleId2
     }
     
     /**
@@ -709,8 +765,23 @@ class ChoreRepository @Inject constructor(
                         now.plusDays(daysUntilSunday.toLong())
                     }
                     com.chorequest.domain.models.RecurringFrequency.MONTHLY -> {
-                        // Due at end of month
-                        now.withDayOfMonth(now.lengthOfMonth())
+                        // Use specified day of month, or default to end of month
+                        val targetDay = template.recurring.dayOfMonth ?: now.lengthOfMonth()
+                        try {
+                            // Try to set the day in the current month
+                            val targetDate = now.withDayOfMonth(minOf(targetDay, now.lengthOfMonth()))
+                            // If the day has already passed this month, move to next month
+                            if (targetDate < now) {
+                                // Move to next month
+                                val nextMonth = now.plusMonths(1)
+                                nextMonth.withDayOfMonth(minOf(targetDay, nextMonth.lengthOfMonth()))
+                            } else {
+                                targetDate
+                            }
+                        } catch (e: Exception) {
+                            // If day doesn't exist in current month (e.g., 31 in Feb), use last day
+                            now.withDayOfMonth(now.lengthOfMonth())
+                        }
                     }
                 }
             }
@@ -960,8 +1031,7 @@ class ChoreRepository @Inject constructor(
      */
     fun createChore(chore: Chore): Flow<Result<Chore>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
+        val session = sessionManager.loadSession()
             if (session == null) {
                 emit(Result.Error("No active session"))
                 return@flow
@@ -1088,6 +1158,9 @@ class ChoreRepository @Inject constructor(
                             Log.w(TAG, "Failed to write chore to Drive, falling back to Apps Script")
                         }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // Re-throw cancellation exceptions - they should propagate up
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
                 }
@@ -1157,10 +1230,14 @@ class ChoreRepository @Inject constructor(
                     emit(Result.Error("Failed to save chore to Drive: $errorMsg"))
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error creating chore", e)
-            emit(Result.Error(e.message ?: "Failed to create chore"))
+    }.catch { e ->
+        // Handle exceptions using Flow.catch operator to maintain exception transparency
+        if (e is kotlinx.coroutines.CancellationException) {
+            // Re-throw cancellation exceptions - they should propagate up
+            throw e
         }
+        Log.e(TAG, "Error creating chore", e)
+        emit(Result.Error(e.message ?: "Failed to create chore"))
     }
 
     /**
@@ -1169,124 +1246,127 @@ class ChoreRepository @Inject constructor(
      */
     fun updateChore(chore: Chore): Flow<Result<Chore>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
-            if (session == null) {
-                emit(Result.Error("No active session"))
-                return@flow
-            }
+        val session = sessionManager.loadSession()
+        if (session == null) {
+            emit(Result.Error("No active session"))
+            return@flow
+        }
 
-            // Try direct Drive API first
-            val accessToken = tokenManager.getValidAccessToken()
-            if (accessToken != null) {
-                try {
-                    Log.d(TAG, "Using direct Drive API to update chore")
-                    val folderId = session.driveWorkbookLink
-                    
-                    // Read current chores
-                    val choresData = readChoresFromDrive(accessToken, folderId)
-                    if (choresData != null) {
-                        // Find and update the chore
-                        val updatedChores = choresData.chores.map { 
-                            if (it.id == chore.id) chore else it
-                        }
-                        val updatedData = choresData.copy(chores = updatedChores)
-                        
-                        // Write back to Drive
-                        if (writeChoresToDrive(accessToken, folderId, updatedData)) {
-                            // Update local cache
-                            choreDao.updateChore(chore.toEntity())
-                            Log.d(TAG, "Chore updated successfully via Drive API: ${chore.id}")
-                            // Ensure chores are up to date (expired removal, current creation)
-                            repositoryScope.launch {
-                                ensureChoresUpToDate()
-                                // Reload chores after ensuring they're up to date
-                                loadChoresFromDrive()
-                            }
-                            emit(Result.Success(chore))
-                            return@flow
-                        } else {
-                            Log.w(TAG, "Failed to write chore update to Drive, falling back to Apps Script")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
-                }
-            }
-
-            // Fallback to Apps Script
-            val updates = ChoreUpdates(
-                title = chore.title,
-                description = chore.description,
-                assignedTo = chore.assignedTo,
-                pointValue = chore.pointValue,
-                dueDate = chore.dueDate,
-                recurring = chore.recurring,
-                subtasks = chore.subtasks,
-                color = null,
-                icon = null
-            )
-
-            val request = UpdateChoreRequest(
-                userId = session.userId,
-                choreId = chore.id,
-                updates = updates
-            )
-
-            val response = api.updateChore(request = request)
-            
-            // Check for authorization error (401 status code)
-            if (!response.isSuccessful && response.code() == 401) {
-                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
-                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
-                Log.e(TAG, "Authorization required: $errorMsg")
-                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
-                return@flow
-            }
-            
-            if (response.isSuccessful && response.body()?.success == true) {
-                val updatedChore = response.body()?.chore
-                if (updatedChore != null) {
-                    // Only update local cache AFTER successful Drive save
-                    choreDao.updateChore(updatedChore.toEntity())
-                    Log.d(TAG, "Chore updated successfully on Drive: ${updatedChore.id}")
-                    // Ensure chores are up to date (expired removal, current creation)
-                    repositoryScope.launch {
-                        ensureChoresUpToDate()
-                        // Reload chores after ensuring they're up to date
-                        loadChoresFromDrive()
-                    }
-                    emit(Result.Success(updatedChore))
-                } else {
-                    Log.w(TAG, "Drive updated chore but returned null chore")
-                    emit(Result.Error("Chore updated but response was invalid"))
-                }
-            } else {
-                val errorBody = response.body()
-                val errorMsg = errorBody?.error 
-                    ?: errorBody?.message 
-                    ?: response.message() 
-                    ?: "Failed to update chore on Drive"
+        // Try direct Drive API first
+        val accessToken = tokenManager.getValidAccessToken()
+        if (accessToken != null) {
+            try {
+                Log.d(TAG, "Using direct Drive API to update chore")
+                val folderId = session.driveWorkbookLink
                 
-                // Check if error message indicates authorization is needed
-                if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
-                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
-                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
-                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
-                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
-                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
-                } else {
-                    Log.e(TAG, "Failed to update chore on Drive: $errorMsg")
-                    emit(Result.Error("Failed to save chore update to Drive: $errorMsg"))
+                // Read current chores
+                val choresData = readChoresFromDrive(accessToken, folderId)
+                if (choresData != null) {
+                    // Find and update the chore
+                    val updatedChores = choresData.chores.map { 
+                        if (it.id == chore.id) chore else it
+                    }
+                    val updatedData = choresData.copy(chores = updatedChores)
+                    
+                    // Write back to Drive
+                    if (writeChoresToDrive(accessToken, folderId, updatedData)) {
+                        // Update local cache
+                        choreDao.updateChore(chore.toEntity())
+                        Log.d(TAG, "Chore updated successfully via Drive API: ${chore.id}")
+                        // Ensure chores are up to date (expired removal, current creation)
+                        repositoryScope.launch {
+                            ensureChoresUpToDate()
+                            // Reload chores after ensuring they're up to date
+                            loadChoresFromDrive()
+                        }
+                        emit(Result.Success(chore))
+                        return@flow
+                    } else {
+                        Log.w(TAG, "Failed to write chore update to Drive, falling back to Apps Script")
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Re-throw cancellation exceptions - they should propagate up
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        }
+
+        // Fallback to Apps Script
+        val updates = ChoreUpdates(
+            title = chore.title,
+            description = chore.description,
+            assignedTo = chore.assignedTo,
+            pointValue = chore.pointValue,
+            dueDate = chore.dueDate,
+            recurring = chore.recurring,
+            subtasks = chore.subtasks,
+            color = null,
+            icon = null
+        )
+
+        val request = UpdateChoreRequest(
+            userId = session.userId,
+            choreId = chore.id,
+            updates = updates
+        )
+
+        val response = api.updateChore(request = request)
+        
+        // Check for authorization error (401 status code)
+        if (!response.isSuccessful && response.code() == 401) {
+            val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+            val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+            Log.e(TAG, "Authorization required: $errorMsg")
+            emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+            return@flow
+        }
+        
+        if (response.isSuccessful && response.body()?.success == true) {
+            val updatedChore = response.body()?.chore
+            if (updatedChore != null) {
+                // Only update local cache AFTER successful Drive save
+                choreDao.updateChore(updatedChore.toEntity())
+                Log.d(TAG, "Chore updated successfully on Drive: ${updatedChore.id}")
+                // Ensure chores are up to date (expired removal, current creation)
+                repositoryScope.launch {
+                    ensureChoresUpToDate()
+                    // Reload chores after ensuring they're up to date
+                    loadChoresFromDrive()
+                }
+                emit(Result.Success(updatedChore))
+            } else {
+                Log.w(TAG, "Drive updated chore but returned null chore")
+                emit(Result.Error("Chore updated but response was invalid"))
+            }
+        } else {
+            val errorBody = response.body()
+            val errorMsg = errorBody?.error 
+                ?: errorBody?.message 
+                ?: response.message() 
+                ?: "Failed to update chore on Drive"
+            
+            // Check if error message indicates authorization is needed
+            if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                    ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+            } else {
+                Log.e(TAG, "Failed to update chore on Drive: $errorMsg")
+                emit(Result.Error("Failed to save chore update to Drive: $errorMsg"))
+            }
+        }
+    }.catch { e ->
+        // Handle exceptions using Flow.catch operator to maintain exception transparency
+        if (e is kotlinx.coroutines.CancellationException) {
             // Re-throw cancellation exceptions - they should propagate up
             throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Error updating chore", e)
-            emit(Result.Error(e.message ?: "Failed to update chore"))
         }
+        Log.e(TAG, "Error updating chore", e)
+        emit(Result.Error(e.message ?: "Failed to update chore"))
     }
 
     /**
@@ -1295,103 +1375,106 @@ class ChoreRepository @Inject constructor(
      */
     fun deleteChore(chore: Chore): Flow<Result<Unit>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
-            if (session == null) {
-                emit(Result.Error("No active session"))
-                return@flow
-            }
+        val session = sessionManager.loadSession()
+        if (session == null) {
+            emit(Result.Error("No active session"))
+            return@flow
+        }
 
-            // Try direct Drive API first
-            val accessToken = tokenManager.getValidAccessToken()
-            if (accessToken != null) {
-                try {
-                    Log.d(TAG, "Using direct Drive API to delete chore")
-                    val folderId = session.driveWorkbookLink
-                    
-                    // Read current chores
-                    val choresData = readChoresFromDrive(accessToken, folderId)
-                    if (choresData != null) {
-                        // Remove the chore
-                        val updatedChores = choresData.chores.filter { it.id != chore.id }
-                        val updatedData = choresData.copy(chores = updatedChores)
-                        
-                        // Write back to Drive
-                        if (writeChoresToDrive(accessToken, folderId, updatedData)) {
-                            // Remove from local cache
-                            choreDao.deleteChore(chore.toEntity())
-                            Log.d(TAG, "Chore deleted successfully via Drive API: ${chore.id}")
-                            // Ensure chores are up to date (expired removal, current creation)
-                            repositoryScope.launch {
-                                ensureChoresUpToDate()
-                                // Reload chores after ensuring they're up to date
-                                loadChoresFromDrive()
-                            }
-                            emit(Result.Success(Unit))
-                            return@flow
-                        } else {
-                            Log.w(TAG, "Failed to delete chore from Drive, falling back to Apps Script")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
-                }
-            }
-
-            // Fallback to Apps Script
-            val request = DeleteChoreRequest(
-                userId = session.userId,
-                choreId = chore.id
-            )
-
-            val response = api.deleteChore(request = request)
-            
-            // Check for authorization error (401 status code)
-            if (!response.isSuccessful && response.code() == 401) {
-                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
-                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
-                Log.e(TAG, "Authorization required: $errorMsg")
-                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
-                return@flow
-            }
-            
-            if (response.isSuccessful && response.body()?.success == true) {
-                // Only remove from local cache AFTER successful Drive deletion
-                choreDao.deleteChore(chore.toEntity())
-                Log.d(TAG, "Chore deleted successfully on Drive: ${chore.id}")
-                // Ensure chores are up to date (expired removal, current creation)
-                repositoryScope.launch {
-                    ensureChoresUpToDate()
-                    // Reload chores after ensuring they're up to date
-                    loadChoresFromDrive()
-                }
-                emit(Result.Success(Unit))
-            } else {
-                val errorBody = response.body()
-                val errorMsg = errorBody?.error 
-                    ?: errorBody?.message 
-                    ?: response.message() 
-                    ?: "Failed to delete chore on Drive"
+        // Try direct Drive API first
+        val accessToken = tokenManager.getValidAccessToken()
+        if (accessToken != null) {
+            try {
+                Log.d(TAG, "Using direct Drive API to delete chore")
+                val folderId = session.driveWorkbookLink
                 
-                // Check if error message indicates authorization is needed
-                if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
-                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
-                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
-                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
-                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
-                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
-                } else {
-                    Log.e(TAG, "Failed to delete chore on Drive: $errorMsg")
-                    emit(Result.Error("Failed to delete chore from Drive: $errorMsg"))
+                // Read current chores
+                val choresData = readChoresFromDrive(accessToken, folderId)
+                if (choresData != null) {
+                    // Remove the chore
+                    val updatedChores = choresData.chores.filter { it.id != chore.id }
+                    val updatedData = choresData.copy(chores = updatedChores)
+                    
+                    // Write back to Drive
+                    if (writeChoresToDrive(accessToken, folderId, updatedData)) {
+                        // Remove from local cache
+                        choreDao.deleteChore(chore.toEntity())
+                        Log.d(TAG, "Chore deleted successfully via Drive API: ${chore.id}")
+                        // Ensure chores are up to date (expired removal, current creation)
+                        repositoryScope.launch {
+                            ensureChoresUpToDate()
+                            // Reload chores after ensuring they're up to date
+                            loadChoresFromDrive()
+                        }
+                        emit(Result.Success(Unit))
+                        return@flow
+                    } else {
+                        Log.w(TAG, "Failed to delete chore from Drive, falling back to Apps Script")
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Re-throw cancellation exceptions - they should propagate up
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        }
+
+        // Fallback to Apps Script
+        val request = DeleteChoreRequest(
+            userId = session.userId,
+            choreId = chore.id
+        )
+
+        val response = api.deleteChore(request = request)
+        
+        // Check for authorization error (401 status code)
+        if (!response.isSuccessful && response.code() == 401) {
+            val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+            val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+            Log.e(TAG, "Authorization required: $errorMsg")
+            emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+            return@flow
+        }
+        
+        if (response.isSuccessful && response.body()?.success == true) {
+            // Only remove from local cache AFTER successful Drive deletion
+            choreDao.deleteChore(chore.toEntity())
+            Log.d(TAG, "Chore deleted successfully on Drive: ${chore.id}")
+            // Ensure chores are up to date (expired removal, current creation)
+            repositoryScope.launch {
+                ensureChoresUpToDate()
+                // Reload chores after ensuring they're up to date
+                loadChoresFromDrive()
+            }
+            emit(Result.Success(Unit))
+        } else {
+            val errorBody = response.body()
+            val errorMsg = errorBody?.error 
+                ?: errorBody?.message 
+                ?: response.message() 
+                ?: "Failed to delete chore on Drive"
+            
+            // Check if error message indicates authorization is needed
+            if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                    ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+            } else {
+                Log.e(TAG, "Failed to delete chore on Drive: $errorMsg")
+                emit(Result.Error("Failed to delete chore from Drive: $errorMsg"))
+            }
+        }
+    }.catch { e ->
+        // Handle exceptions using Flow.catch operator to maintain exception transparency
+        if (e is kotlinx.coroutines.CancellationException) {
             // Re-throw cancellation exceptions - they should propagate up
             throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Error deleting chore", e)
-            emit(Result.Error(e.message ?: "Failed to delete chore"))
         }
+        Log.e(TAG, "Error deleting chore", e)
+        emit(Result.Error(e.message ?: "Failed to delete chore"))
     }
 
     /**
@@ -1400,123 +1483,126 @@ class ChoreRepository @Inject constructor(
      */
     fun completeChore(choreId: String, userId: String, photoProof: String? = null): Flow<Result<Chore>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
-            if (session == null) {
-                emit(Result.Error("No active session"))
-                return@flow
-            }
+        val session = sessionManager.loadSession()
+        if (session == null) {
+            emit(Result.Error("No active session"))
+            return@flow
+        }
 
-            // Try direct Drive API first
-            val accessToken = tokenManager.getValidAccessToken()
-            if (accessToken != null) {
-                try {
-                    Log.d(TAG, "Using direct Drive API to complete chore")
-                    val folderId = session.driveWorkbookLink
-                    
-                    // Read current chores
-                    val choresData = readChoresFromDrive(accessToken, folderId)
-                    if (choresData != null) {
-                        // Find and update the chore
-                        val chore = choresData.chores.find { it.id == choreId }
-                        if (chore != null) {
-                            val now = java.time.Instant.now().toString()
-                            val completedChore = chore.copy(
-                                status = ChoreStatus.COMPLETED,
-                                completedBy = userId,
-                                completedAt = now,
-                                photoProof = photoProof ?: chore.photoProof
-                            )
-                            
-                            val updatedChores = choresData.chores.map { 
-                                if (it.id == choreId) completedChore else it
+        // Try direct Drive API first
+        val accessToken = tokenManager.getValidAccessToken()
+        if (accessToken != null) {
+            try {
+                Log.d(TAG, "Using direct Drive API to complete chore")
+                val folderId = session.driveWorkbookLink
+                
+                // Read current chores
+                val choresData = readChoresFromDrive(accessToken, folderId)
+                if (choresData != null) {
+                    // Find and update the chore
+                    val chore = choresData.chores.find { it.id == choreId }
+                    if (chore != null) {
+                        val now = java.time.Instant.now().toString()
+                        val completedChore = chore.copy(
+                            status = ChoreStatus.COMPLETED,
+                            completedBy = userId,
+                            completedAt = now,
+                            photoProof = photoProof ?: chore.photoProof
+                        )
+                        
+                        val updatedChores = choresData.chores.map { 
+                            if (it.id == choreId) completedChore else it
+                        }
+                        val updatedData = choresData.copy(chores = updatedChores)
+                        
+                        // Write back to Drive
+                        if (writeChoresToDrive(accessToken, folderId, updatedData)) {
+                            // Update local cache
+                            choreDao.updateChore(completedChore.toEntity())
+                            Log.d(TAG, "Chore completed successfully via Drive API: $choreId")
+                            // Ensure chores are up to date (expired removal, current creation)
+                            repositoryScope.launch {
+                                ensureChoresUpToDate()
+                                // Reload chores after ensuring they're up to date
+                                loadChoresFromDrive()
                             }
-                            val updatedData = choresData.copy(chores = updatedChores)
-                            
-                            // Write back to Drive
-                            if (writeChoresToDrive(accessToken, folderId, updatedData)) {
-                                // Update local cache
-                                choreDao.updateChore(completedChore.toEntity())
-                                Log.d(TAG, "Chore completed successfully via Drive API: $choreId")
-                                // Ensure chores are up to date (expired removal, current creation)
-                                repositoryScope.launch {
-                                    ensureChoresUpToDate()
-                                    // Reload chores after ensuring they're up to date
-                                    loadChoresFromDrive()
-                                }
-                                emit(Result.Success(completedChore))
-                                return@flow
-                            } else {
-                                Log.w(TAG, "Failed to complete chore on Drive, falling back to Apps Script")
-                            }
+                            emit(Result.Success(completedChore))
+                            return@flow
+                        } else {
+                            Log.w(TAG, "Failed to complete chore on Drive, falling back to Apps Script")
                         }
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Re-throw cancellation exceptions - they should propagate up
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
             }
+        }
 
-            // Fallback to Apps Script
-            val request = CompleteChoreRequest(
-                userId = userId,
-                choreId = choreId,
-                photoProof = photoProof
-            )
+        // Fallback to Apps Script
+        val request = CompleteChoreRequest(
+            userId = userId,
+            choreId = choreId,
+            photoProof = photoProof
+        )
 
-            val response = api.completeChore(request = request)
-            
-            // Check for authorization error (401 status code)
-            if (!response.isSuccessful && response.code() == 401) {
-                val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
-                val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
-                Log.e(TAG, "Authorization required: $errorMsg")
-                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
-                return@flow
-            }
-            
-            if (response.isSuccessful && response.body()?.success == true) {
-                val completedChore = response.body()?.chore
-                if (completedChore != null) {
-                    // Only update local cache AFTER successful Drive save
-                    choreDao.updateChore(completedChore.toEntity())
-                    Log.d(TAG, "Chore completed successfully on Drive: $choreId")
-                    // Ensure chores are up to date (expired removal, current creation)
-                    repositoryScope.launch {
-                        ensureChoresUpToDate()
-                        // Reload chores after ensuring they're up to date
-                        loadChoresFromDrive()
-                    }
-                    emit(Result.Success(completedChore))
-                } else {
-                    Log.w(TAG, "Drive completed chore but returned null chore")
-                    emit(Result.Error("Chore completed but response was invalid"))
+        val response = api.completeChore(request = request)
+        
+        // Check for authorization error (401 status code)
+        if (!response.isSuccessful && response.code() == 401) {
+            val authUrl = com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+            val errorMsg = "Drive access not authorized. Please authorize the app to access your Google Drive."
+            Log.e(TAG, "Authorization required: $errorMsg")
+            emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$errorMsg"))
+            return@flow
+        }
+        
+        if (response.isSuccessful && response.body()?.success == true) {
+            val completedChore = response.body()?.chore
+            if (completedChore != null) {
+                // Only update local cache AFTER successful Drive save
+                choreDao.updateChore(completedChore.toEntity())
+                Log.d(TAG, "Chore completed successfully on Drive: $choreId")
+                // Ensure chores are up to date (expired removal, current creation)
+                repositoryScope.launch {
+                    ensureChoresUpToDate()
+                    // Reload chores after ensuring they're up to date
+                    loadChoresFromDrive()
                 }
+                emit(Result.Success(completedChore))
             } else {
-                val errorBody = response.body()
-                val errorMsg = errorBody?.error 
-                    ?: errorBody?.message 
-                    ?: response.message() 
-                    ?: "Failed to complete chore on Drive"
-                
-                // Check if error message indicates authorization is needed
-                if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
-                    val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
-                        ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
-                    val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
-                    Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
-                    emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
-                } else {
-                    Log.e(TAG, "Failed to complete chore on Drive: $errorMsg")
-                    emit(Result.Error("Failed to save chore completion to Drive: $errorMsg"))
-                }
+                Log.w(TAG, "Drive completed chore but returned null chore")
+                emit(Result.Error("Chore completed but response was invalid"))
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } else {
+            val errorBody = response.body()
+            val errorMsg = errorBody?.error 
+                ?: errorBody?.message 
+                ?: response.message() 
+                ?: "Failed to complete chore on Drive"
+            
+            // Check if error message indicates authorization is needed
+            if (com.chorequest.utils.AuthorizationHelper.isAuthorizationError(errorMsg)) {
+                val authUrl = com.chorequest.utils.AuthorizationHelper.extractAuthorizationUrl(errorMsg)
+                    ?: com.chorequest.utils.AuthorizationHelper.getBaseAuthorizationUrl()
+                val userFriendlyMsg = com.chorequest.utils.AuthorizationHelper.extractErrorMessage(errorMsg)
+                Log.e(TAG, "Authorization required (from error message): $userFriendlyMsg")
+                emit(Result.Error("AUTHORIZATION_REQUIRED:$authUrl:$userFriendlyMsg"))
+            } else {
+                Log.e(TAG, "Failed to complete chore on Drive: $errorMsg")
+                emit(Result.Error("Failed to save chore completion to Drive: $errorMsg"))
+            }
+        }
+    }.catch { e ->
+        // Handle exceptions using Flow.catch operator to maintain exception transparency
+        if (e is kotlinx.coroutines.CancellationException) {
             // Re-throw cancellation exceptions - they should propagate up
             throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Error completing chore", e)
-            emit(Result.Error(e.message ?: "Failed to complete chore"))
         }
+        Log.e(TAG, "Error completing chore", e)
+        emit(Result.Error(e.message ?: "Failed to complete chore"))
     }
 
     /**
@@ -1524,8 +1610,7 @@ class ChoreRepository @Inject constructor(
      */
     fun verifyChore(choreId: String, approved: Boolean): Flow<Result<Chore>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
+        val session = sessionManager.loadSession()
             if (session == null) {
                 emit(Result.Error("No active session"))
                 return@flow
@@ -1586,6 +1671,9 @@ class ChoreRepository @Inject constructor(
                             }
                         }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // Re-throw cancellation exceptions - they should propagate up
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
                 }
@@ -1619,10 +1707,14 @@ class ChoreRepository @Inject constructor(
                 val errorMsg = response.body()?.error ?: response.message() ?: "Failed to verify chore"
                 emit(Result.Error(errorMsg))
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error verifying chore", e)
-            emit(Result.Error(e.message ?: "Failed to verify chore"))
+    }.catch { e ->
+        // Handle exceptions using Flow.catch operator to maintain exception transparency
+        if (e is kotlinx.coroutines.CancellationException) {
+            // Re-throw cancellation exceptions - they should propagate up
+            throw e
         }
+        Log.e(TAG, "Error verifying chore", e)
+        emit(Result.Error(e.message ?: "Failed to verify chore"))
     }
 
     /**
@@ -1740,8 +1832,7 @@ class ChoreRepository @Inject constructor(
      */
     fun deleteRecurringChoreTemplate(templateId: String): Flow<Result<Unit>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
+        val session = sessionManager.loadSession()
             if (session == null) {
                 emit(Result.Error("No active session"))
                 return@flow
@@ -1778,6 +1869,9 @@ class ChoreRepository @Inject constructor(
                     
                     Log.d(TAG, "Template deleted successfully via Drive API")
                     emit(Result.Success(Unit))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // Re-throw cancellation exceptions - they should propagate up
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
                     // Fall back to Apps Script
@@ -1790,10 +1884,14 @@ class ChoreRepository @Inject constructor(
                 val result = deleteTemplateViaAppsScript(session.userId, templateId)
                 emit(result)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error deleting template", e)
-            emit(Result.Error(e.message ?: "Failed to delete template"))
+    }.catch { e ->
+        // Handle exceptions using Flow.catch operator to maintain exception transparency
+        if (e is kotlinx.coroutines.CancellationException) {
+            // Re-throw cancellation exceptions - they should propagate up
+            throw e
         }
+        Log.e(TAG, "Error deleting template", e)
+        emit(Result.Error(e.message ?: "Failed to delete template"))
     }
     
     /**

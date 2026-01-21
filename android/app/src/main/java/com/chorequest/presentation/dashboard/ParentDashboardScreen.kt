@@ -594,6 +594,18 @@ private fun ChorePreviewCard(
         }
     }
     
+    val expirationProgress = remember(chore.dueDate, chore.recurring, chore.cycleId, currentTime, chore.status) {
+        if (chore.status == com.chorequest.domain.models.ChoreStatus.PENDING && chore.dueDate != null) {
+            ChoreDateUtils.calculateExpirationProgress(
+                chore.dueDate,
+                chore.recurring?.frequency,
+                chore.cycleId
+            )
+        } else {
+            null
+        }
+    }
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
@@ -652,9 +664,9 @@ private fun ChorePreviewCard(
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                                 tint = if (timeRemaining.isVeryUrgent) {
-                                    MaterialTheme.colorScheme.error
+                                    MaterialTheme.colorScheme.onErrorContainer
                                 } else if (timeRemaining.isUrgent) {
-                                    MaterialTheme.colorScheme.errorContainer
+                                    MaterialTheme.colorScheme.tertiary
                                 } else {
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 }
@@ -663,9 +675,9 @@ private fun ChorePreviewCard(
                                 text = "Expires in ${timeRemaining.formatted}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (timeRemaining.isVeryUrgent) {
-                                    MaterialTheme.colorScheme.error
+                                    MaterialTheme.colorScheme.onErrorContainer
                                 } else if (timeRemaining.isUrgent) {
-                                    MaterialTheme.colorScheme.errorContainer
+                                    MaterialTheme.colorScheme.tertiary
                                 } else {
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 },
@@ -683,13 +695,33 @@ private fun ChorePreviewCard(
                                 imageVector = Icons.Default.Schedule,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.error
+                                tint = MaterialTheme.colorScheme.onErrorContainer
                             )
                             Text(
                                 text = "Expired",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
                                 fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    
+                    // Progress bar showing expiration progress
+                    expirationProgress?.let { progress ->
+                        if (chore.status == com.chorequest.domain.models.ChoreStatus.PENDING) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LinearProgressIndicator(
+                                progress = progress,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp)),
+                                color = when {
+                                    progress >= 0.9f -> MaterialTheme.colorScheme.error
+                                    progress >= 0.7f -> MaterialTheme.colorScheme.tertiary
+                                    else -> MaterialTheme.colorScheme.primary
+                                },
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
                             )
                         }
                     }

@@ -265,6 +265,13 @@ private fun formatRecurringSchedule(recurring: com.chorequest.domain.models.Recu
                 "Weekly"
             }
         }
-        RecurringFrequency.MONTHLY -> "Monthly"
+        RecurringFrequency.MONTHLY -> {
+            val dayOfMonth = recurring.dayOfMonth
+            if (dayOfMonth != null) {
+                "Monthly: Day $dayOfMonth"
+            } else {
+                "Monthly"
+            }
+        }
     }
 }

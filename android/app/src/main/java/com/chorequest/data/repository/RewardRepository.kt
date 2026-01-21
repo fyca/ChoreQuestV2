@@ -17,6 +17,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -62,20 +63,143 @@ class RewardRepository @Inject constructor(
     /**
      * Create a new reward
      * Drive is the source of truth - save to Drive FIRST, then cache locally
+     * Uses direct Drive API first, falls back to Apps Script if needed
      */
     fun createReward(reward: Reward): Flow<Result<Reward>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
-            if (session == null) {
-                emit(Result.Error("No active session"))
-                return@flow
-            }
+        val session = sessionManager.loadSession()
+        if (session == null) {
+            emit(Result.Error("No active session"))
+            return@flow
+        }
 
-            // Save to Drive FIRST (Drive is source of truth)
-            val response = api.createReward(
-                request = CreateRewardRequest(
-                    creatorId = session.userId,
+        // Try direct Drive API first
+        val accessToken = tokenManager.getValidAccessToken()
+        if (accessToken != null) {
+            try {
+                Log.d(TAG, "Using direct Drive API to create reward")
+                val folderId = session.driveWorkbookLink
+                
+                // Read current rewards
+                val rewardsData = readRewardsFromDrive(accessToken, folderId) ?: com.chorequest.domain.models.RewardsData(rewards = emptyList())
+                
+                // Add new reward
+                val updatedRewards = rewardsData.rewards + reward
+                val updatedData = rewardsData.copy(rewards = updatedRewards)
+                
+                // Write back to Drive
+                if (writeRewardsToDrive(accessToken, folderId, updatedData)) {
+                    // Update local cache
+                    rewardDao.insertReward(reward.toEntity())
+                    Log.d(TAG, "Reward created successfully via Drive API: ${reward.id}")
+                    emit(Result.Success(reward))
+                    return@flow
+                } else {
+                    Log.w(TAG, "Failed to write reward to Drive, falling back to Apps Script")
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Re-throw cancellation exceptions
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+            }
+        } else {
+            Log.d(TAG, "No access token available, using Apps Script")
+        }
+
+        // Fallback to Apps Script
+        val response = api.createReward(
+            request = CreateRewardRequest(
+                creatorId = session.userId,
+                title = reward.title,
+                description = reward.description,
+                pointCost = reward.pointCost,
+                imageUrl = reward.imageUrl,
+                available = reward.available,
+                quantity = reward.quantity
+            )
+        )
+
+        if (response.isSuccessful && response.body()?.success == true) {
+            val created = response.body()?.reward
+            if (created != null) {
+                // Only save to local cache AFTER successful Drive save
+                rewardDao.insertReward(created.toEntity())
+                Log.d(TAG, "Reward created successfully via Apps Script: ${created.id}")
+                emit(Result.Success(created))
+            } else {
+                Log.w(TAG, "Apps Script created reward but returned null reward")
+                emit(Result.Error("Reward created but response was invalid"))
+            }
+        } else {
+            val errorMsg = response.body()?.error ?: response.message() ?: "Failed to create reward"
+            Log.e(TAG, "Failed to create reward via Apps Script: $errorMsg")
+            emit(Result.Error("Failed to save reward: $errorMsg"))
+        }
+    }.catch { e ->
+        if (e is kotlinx.coroutines.CancellationException) {
+            throw e
+        }
+        Log.e(TAG, "Create reward failed", e)
+        emit(Result.Error(e.message ?: "Failed to create reward"))
+    }
+
+    /**
+     * Update an existing reward
+     * Drive is the source of truth - save to Drive FIRST, then cache locally
+     * Uses direct Drive API first, falls back to Apps Script if needed
+     */
+    fun updateReward(reward: Reward): Flow<Result<Reward>> = flow {
+        emit(Result.Loading)
+        val session = sessionManager.loadSession()
+        if (session == null) {
+            emit(Result.Error("No active session"))
+            return@flow
+        }
+
+        // Try direct Drive API first
+        val accessToken = tokenManager.getValidAccessToken()
+        if (accessToken != null) {
+            try {
+                Log.d(TAG, "Using direct Drive API to update reward")
+                val folderId = session.driveWorkbookLink
+                
+                // Read current rewards
+                val rewardsData = readRewardsFromDrive(accessToken, folderId)
+                if (rewardsData != null) {
+                    // Find and update the reward
+                    val updatedRewards = rewardsData.rewards.map { 
+                        if (it.id == reward.id) reward else it
+                    }
+                    val updatedData = rewardsData.copy(rewards = updatedRewards)
+                    
+                    // Write back to Drive
+                    if (writeRewardsToDrive(accessToken, folderId, updatedData)) {
+                        // Update local cache
+                        rewardDao.updateReward(reward.toEntity())
+                        Log.d(TAG, "Reward updated successfully via Drive API: ${reward.id}")
+                        emit(Result.Success(reward))
+                        return@flow
+                    } else {
+                        Log.w(TAG, "Failed to write reward update to Drive, falling back to Apps Script")
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Re-throw cancellation exceptions
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+            }
+        } else {
+            Log.d(TAG, "No access token available, using Apps Script")
+        }
+
+        // Fallback to Apps Script
+        val response = api.updateReward(
+            request = UpdateRewardRequest(
+                userId = session.userId,
+                rewardId = reward.id,
+                updates = RewardUpdates(
                     title = reward.title,
                     description = reward.description,
                     pointCost = reward.pointCost,
@@ -84,114 +208,103 @@ class RewardRepository @Inject constructor(
                     quantity = reward.quantity
                 )
             )
+        )
 
-            if (response.isSuccessful && response.body()?.success == true) {
-                val created = response.body()?.reward
-                if (created != null) {
-                    // Only save to local cache AFTER successful Drive save
-                    rewardDao.insertReward(created.toEntity())
-                    Log.d("RewardRepository", "Reward created successfully on Drive: ${created.id}")
-                    emit(Result.Success(created))
-                } else {
-                    Log.w("RewardRepository", "Drive created reward but returned null reward")
-                    emit(Result.Error("Reward created but response was invalid"))
-                }
+        if (response.isSuccessful && response.body()?.success == true) {
+            val updated = response.body()?.reward
+            if (updated != null) {
+                // Only update local cache AFTER successful Drive save
+                rewardDao.updateReward(updated.toEntity())
+                Log.d(TAG, "Reward updated successfully via Apps Script: ${updated.id}")
+                emit(Result.Success(updated))
             } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to create reward on Drive"
-                Log.e("RewardRepository", "Failed to create reward on Drive: $errorMsg")
-                emit(Result.Error("Failed to save reward to Drive: $errorMsg"))
+                Log.w(TAG, "Apps Script updated reward but returned null reward")
+                emit(Result.Error("Reward updated but response was invalid"))
             }
-        } catch (e: Exception) {
-            Log.e("RewardRepository", "Create reward failed: ${e.message}")
-            emit(Result.Error(e.message ?: "Failed to create reward"))
+        } else {
+            val errorMsg = response.body()?.error ?: response.message() ?: "Failed to update reward"
+            Log.e(TAG, "Failed to update reward via Apps Script: $errorMsg")
+            emit(Result.Error("Failed to save reward update: $errorMsg"))
         }
-    }
-
-    /**
-     * Update an existing reward
-     * Drive is the source of truth - save to Drive FIRST, then cache locally
-     */
-    fun updateReward(reward: Reward): Flow<Result<Reward>> = flow {
-        emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
-            if (session == null) {
-                emit(Result.Error("No active session"))
-                return@flow
-            }
-
-            // Save to Drive FIRST (Drive is source of truth)
-            val response = api.updateReward(
-                request = UpdateRewardRequest(
-                    userId = session.userId,
-                    rewardId = reward.id,
-                    updates = RewardUpdates(
-                        title = reward.title,
-                        description = reward.description,
-                        pointCost = reward.pointCost,
-                        imageUrl = reward.imageUrl,
-                        available = reward.available,
-                        quantity = reward.quantity
-                    )
-                )
-            )
-
-            if (response.isSuccessful && response.body()?.success == true) {
-                val updated = response.body()?.reward
-                if (updated != null) {
-                    // Only update local cache AFTER successful Drive save
-                    rewardDao.updateReward(updated.toEntity())
-                    Log.d("RewardRepository", "Reward updated successfully on Drive: ${updated.id}")
-                    emit(Result.Success(updated))
-                } else {
-                    Log.w("RewardRepository", "Drive updated reward but returned null reward")
-                    emit(Result.Error("Reward updated but response was invalid"))
-                }
-            } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to update reward on Drive"
-                Log.e("RewardRepository", "Failed to update reward on Drive: $errorMsg")
-                emit(Result.Error("Failed to save reward update to Drive: $errorMsg"))
-            }
-        } catch (e: Exception) {
-            Log.e("RewardRepository", "Update reward failed: ${e.message}")
-            emit(Result.Error(e.message ?: "Failed to update reward"))
+    }.catch { e ->
+        if (e is kotlinx.coroutines.CancellationException) {
+            throw e
         }
+        Log.e(TAG, "Update reward failed", e)
+        emit(Result.Error(e.message ?: "Failed to update reward"))
     }
 
     /**
      * Delete a reward
      * Drive is the source of truth - delete from Drive FIRST, then remove from local cache
+     * Uses direct Drive API first, falls back to Apps Script if needed
      */
     fun deleteReward(reward: Reward): Flow<Result<Unit>> = flow {
         emit(Result.Loading)
-        try {
-            val session = sessionManager.loadSession()
-            if (session == null) {
-                emit(Result.Error("No active session"))
-                return@flow
-            }
-
-            // Delete from Drive FIRST (Drive is source of truth)
-            val response = api.deleteReward(
-                request = DeleteRewardRequest(
-                    userId = session.userId,
-                    rewardId = reward.id
-                )
-            )
-            if (response.isSuccessful && response.body()?.success == true) {
-                // Only remove from local cache AFTER successful Drive deletion
-                rewardDao.deleteReward(reward.toEntity())
-                Log.d("RewardRepository", "Reward deleted successfully on Drive: ${reward.id}")
-                emit(Result.Success(Unit))
-            } else {
-                val errorMsg = response.body()?.error ?: response.message() ?: "Failed to delete reward on Drive"
-                Log.e("RewardRepository", "Failed to delete reward on Drive: $errorMsg")
-                emit(Result.Error("Failed to delete reward from Drive: $errorMsg"))
-            }
-        } catch (e: Exception) {
-            Log.e("RewardRepository", "Delete reward failed: ${e.message}")
-            emit(Result.Error(e.message ?: "Failed to delete reward"))
+        val session = sessionManager.loadSession()
+        if (session == null) {
+            emit(Result.Error("No active session"))
+            return@flow
         }
+
+        // Try direct Drive API first
+        val accessToken = tokenManager.getValidAccessToken()
+        if (accessToken != null) {
+            try {
+                Log.d(TAG, "Using direct Drive API to delete reward")
+                val folderId = session.driveWorkbookLink
+                
+                // Read current rewards
+                val rewardsData = readRewardsFromDrive(accessToken, folderId)
+                if (rewardsData != null) {
+                    // Remove the reward
+                    val updatedRewards = rewardsData.rewards.filter { it.id != reward.id }
+                    val updatedData = rewardsData.copy(rewards = updatedRewards)
+                    
+                    // Write back to Drive
+                    if (writeRewardsToDrive(accessToken, folderId, updatedData)) {
+                        // Remove from local cache
+                        rewardDao.deleteReward(reward.toEntity())
+                        Log.d(TAG, "Reward deleted successfully via Drive API: ${reward.id}")
+                        emit(Result.Success(Unit))
+                        return@flow
+                    } else {
+                        Log.w(TAG, "Failed to delete reward from Drive, falling back to Apps Script")
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Re-throw cancellation exceptions
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+            }
+        } else {
+            Log.d(TAG, "No access token available, using Apps Script")
+        }
+
+        // Fallback to Apps Script
+        val response = api.deleteReward(
+            request = DeleteRewardRequest(
+                userId = session.userId,
+                rewardId = reward.id
+            )
+        )
+        if (response.isSuccessful && response.body()?.success == true) {
+            // Only remove from local cache AFTER successful Drive deletion
+            rewardDao.deleteReward(reward.toEntity())
+            Log.d(TAG, "Reward deleted successfully via Apps Script: ${reward.id}")
+            emit(Result.Success(Unit))
+        } else {
+            val errorMsg = response.body()?.error ?: response.message() ?: "Failed to delete reward"
+            Log.e(TAG, "Failed to delete reward via Apps Script: $errorMsg")
+            emit(Result.Error("Failed to delete reward: $errorMsg"))
+        }
+    }.catch { e ->
+        if (e is kotlinx.coroutines.CancellationException) {
+            throw e
+        }
+        Log.e(TAG, "Delete reward failed", e)
+        emit(Result.Error(e.message ?: "Failed to delete reward"))
     }
 
     /**
@@ -237,6 +350,42 @@ class RewardRepository @Inject constructor(
             rewardRedemptionDao.getAllRedemptions().map { entities ->
                 entities.map { it.toDomain() }
             }
+        }
+    }
+
+    /**
+     * Helper: Read rewards from Drive using direct API
+     */
+    private suspend fun readRewardsFromDrive(accessToken: String, folderId: String): com.chorequest.domain.models.RewardsData? {
+        return try {
+            val fileName = "rewards.json"
+            val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+            
+            if (fileId != null) {
+                val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                gson.fromJson(jsonContent, com.chorequest.domain.models.RewardsData::class.java)
+            } else {
+                // File doesn't exist, return empty
+                com.chorequest.domain.models.RewardsData(rewards = emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading rewards from Drive", e)
+            null
+        }
+    }
+
+    /**
+     * Helper: Write rewards to Drive using direct API
+     */
+    private suspend fun writeRewardsToDrive(accessToken: String, folderId: String, rewardsData: com.chorequest.domain.models.RewardsData): Boolean {
+        return try {
+            val fileName = "rewards.json"
+            val jsonContent = gson.toJson(rewardsData)
+            driveApiService.writeFileContent(accessToken, folderId, fileName, jsonContent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing rewards to Drive", e)
+            false
         }
     }
 
@@ -392,19 +541,64 @@ class RewardRepository @Inject constructor(
 
     /**
      * Fetch rewards from server and update local database
+     * Uses direct Drive API first, falls back to Apps Script if needed
      */
     suspend fun syncRewards() {
         try {
             val session = sessionManager.loadSession()
-            if (session != null) {
-                val response = api.listRewards(familyId = session.familyId)
-                if (response.isSuccessful && response.body()?.success == true) {
-                    val rewards = response.body()?.rewards ?: emptyList()
+            if (session == null) {
+                Log.e(TAG, "No session for syncing rewards")
+                return
+            }
+
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            if (accessToken != null && folderId.isNotBlank()) {
+                try {
+                    Log.d(TAG, "Syncing rewards using direct Drive API...")
+                    val rewardsData = readRewardsFromDrive(accessToken, folderId)
+                    
+                    if (rewardsData != null) {
+                        val rewards = rewardsData.rewards ?: emptyList()
+                        
+                        // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
+                        rewardDao.deleteAllRewards()
+                        if (rewards.isNotEmpty()) {
+                            rewardDao.insertRewards(rewards.map { it.toEntity() })
+                        }
+                        Log.d(TAG, "Synced ${rewards.size} rewards via Drive API")
+                        return
+                    } else {
+                        Log.w(TAG, "Failed to read rewards from Drive, falling back to Apps Script")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                }
+            } else {
+                Log.d(TAG, "No access token or folder ID available, using Apps Script")
+            }
+
+            // Fallback to Apps Script
+            Log.d(TAG, "Syncing rewards using Apps Script...")
+            val response = api.listRewards(familyId = session.familyId)
+            if (response.isSuccessful && response.body()?.success == true) {
+                val rewards = response.body()?.rewards ?: emptyList()
+                
+                // IMPORTANT: Only delete local data AFTER successfully fetching from Apps Script
+                rewardDao.deleteAllRewards()
+                if (rewards.isNotEmpty()) {
                     rewardDao.insertRewards(rewards.map { it.toEntity() })
                 }
+                Log.d(TAG, "Synced ${rewards.size} rewards via Apps Script")
+            } else {
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "Failed to sync rewards via Apps Script: $errorBody - keeping existing local data")
             }
         } catch (e: Exception) {
-            Log.e("RewardRepository", "Sync rewards failed: ${e.message}")
+            Log.e(TAG, "Sync rewards failed: ${e.message}", e)
+            // Don't throw - allow other operations to continue
         }
     }
 }

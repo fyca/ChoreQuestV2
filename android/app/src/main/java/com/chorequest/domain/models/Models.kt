@@ -103,6 +103,7 @@ data class Chore(
 data class RecurringSchedule(
     val frequency: RecurringFrequency,
     val daysOfWeek: List<Int>? = null,
+    val dayOfMonth: Int? = null,
     val endDate: String? = null
 )
 

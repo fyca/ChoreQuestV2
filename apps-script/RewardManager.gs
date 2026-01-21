@@ -778,17 +778,52 @@ function deleteReward(data) {
  */
 function listRewards(familyId) {
   try {
-    const familyData = loadJsonFile(FILE_NAMES.FAMILY);
-    const rewardsData = loadJsonFile(FILE_NAMES.REWARDS);
+    Logger.log('listRewards: Looking for family with ID: ' + familyId);
     
-    if (!familyData || familyData.id !== familyId) {
-      return createResponse({ error: 'Family not found' }, 404);
+    // Get all stored access tokens from user properties
+    const userProps = PropertiesService.getUserProperties();
+    const allProps = userProps.getProperties();
+    
+    // Try each stored access token until we find the family with matching familyId
+    for (const key in allProps) {
+      if (key.startsWith('ACCESS_TOKEN_')) {
+        const ownerEmail = key.replace('ACCESS_TOKEN_', '');
+        const accessToken = allProps[key];
+        
+        Logger.log('listRewards: Trying access token for: ' + ownerEmail);
+        
+        try {
+          // Try to get the folder ID and load family data
+          const folderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+          Logger.log('listRewards: Got folder ID: ' + folderId);
+          
+          // Load family data to check if it matches the requested familyId
+          const familyData = loadJsonFileV3(FILE_NAMES.FAMILY, ownerEmail, folderId, accessToken);
+          
+          if (familyData && familyData.id === familyId) {
+            Logger.log('listRewards: Found matching family! ownerEmail=' + familyData.ownerEmail + ', folderId=' + familyData.driveFileId);
+            
+            // Load rewards data using the correct folderId and accessToken
+            const rewardsData = loadJsonFileV3(FILE_NAMES.REWARDS, ownerEmail, familyData.driveFileId || folderId, accessToken) || { rewards: [] };
+            
+            Logger.log('listRewards: Found ' + (rewardsData.rewards ? rewardsData.rewards.length : 0) + ' rewards');
+            
+            return createResponse({
+              success: true,
+              rewards: rewardsData.rewards || []
+            });
+          } else if (familyData) {
+            Logger.log('listRewards: Family ID mismatch - expected ' + familyId + ', got ' + familyData.id);
+          }
+        } catch (error) {
+          Logger.log('listRewards: Error with access token for ' + ownerEmail + ': ' + error.toString());
+          continue;
+        }
+      }
     }
     
-    return createResponse({
-      success: true,
-      rewards: rewardsData.rewards
-    });
+    Logger.log('listRewards: No family found with ID: ' + familyId);
+    return createResponse({ error: 'Family not found' }, 404);
     
   } catch (error) {
     Logger.log('Error in listRewards: ' + error.toString());
@@ -798,20 +833,48 @@ function listRewards(familyId) {
 
 /**
  * Get single reward
+ * Searches through all families to find the reward
  */
 function getReward(rewardId) {
   try {
-    const rewardsData = loadJsonFile(FILE_NAMES.REWARDS);
-    const reward = rewardsData.rewards.find(r => r.id === rewardId);
+    Logger.log('getReward: Looking for reward with ID: ' + rewardId);
     
-    if (!reward) {
-      return createResponse({ error: 'Reward not found' }, 404);
+    // Get all stored access tokens from user properties
+    const userProps = PropertiesService.getUserProperties();
+    const allProps = userProps.getProperties();
+    
+    // Try each stored access token until we find the reward
+    for (const key in allProps) {
+      if (key.startsWith('ACCESS_TOKEN_')) {
+        const ownerEmail = key.replace('ACCESS_TOKEN_', '');
+        const accessToken = allProps[key];
+        
+        Logger.log('getReward: Trying access token for: ' + ownerEmail);
+        
+        try {
+          // Try to get the folder ID and load rewards data
+          const folderId = getChoreQuestFolderV3(ownerEmail, accessToken);
+          const rewardsData = loadJsonFileV3(FILE_NAMES.REWARDS, ownerEmail, folderId, accessToken) || { rewards: [] };
+          
+          if (rewardsData.rewards) {
+            const reward = rewardsData.rewards.find(r => r.id === rewardId);
+            if (reward) {
+              Logger.log('getReward: Found reward!');
+              return createResponse({
+                success: true,
+                reward: reward
+              });
+            }
+          }
+        } catch (error) {
+          Logger.log('getReward: Error with access token for ' + ownerEmail + ': ' + error.toString());
+          continue;
+        }
+      }
     }
     
-    return createResponse({
-      success: true,
-      reward: reward
-    });
+    Logger.log('getReward: Reward not found with ID: ' + rewardId);
+    return createResponse({ error: 'Reward not found' }, 404);
     
   } catch (error) {
     Logger.log('Error in getReward: ' + error.toString());

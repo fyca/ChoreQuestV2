@@ -71,6 +71,7 @@ fun CreateEditChoreScreen(
     var isRecurring by remember { mutableStateOf(false) }
     var recurringFrequency by remember { mutableStateOf(RecurringFrequency.DAILY) }
     var selectedDaysOfWeek by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var selectedDayOfMonth by remember { mutableStateOf<Int?>(null) }
     var showRecurringDialog by remember { mutableStateOf(false) }
     
     val isEditing = choreId != null
@@ -103,6 +104,7 @@ fun CreateEditChoreScreen(
             chore.recurring?.let { recurring ->
                 recurringFrequency = recurring.frequency
                 selectedDaysOfWeek = recurring.daysOfWeek?.toSet() ?: emptySet()
+                selectedDayOfMonth = recurring.dayOfMonth
             }
         }
     }
@@ -195,6 +197,9 @@ fun CreateEditChoreScreen(
                                         frequency = recurringFrequency,
                                         daysOfWeek = if (recurringFrequency == RecurringFrequency.WEEKLY && selectedDaysOfWeek.isNotEmpty()) {
                                             selectedDaysOfWeek.toList()
+                                        } else null,
+                                        dayOfMonth = if (recurringFrequency == RecurringFrequency.MONTHLY) {
+                                            selectedDayOfMonth
                                         } else null,
                                         endDate = null
                                     )
@@ -693,6 +698,12 @@ fun CreateEditChoreScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                     )
+                                } else if (recurringFrequency == RecurringFrequency.MONTHLY && selectedDayOfMonth != null) {
+                                    Text(
+                                        text = "On day: $selectedDayOfMonth",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                    )
                                 }
                             }
                             Icon(
@@ -842,10 +853,12 @@ fun CreateEditChoreScreen(
         RecurringScheduleDialog(
             frequency = recurringFrequency,
             selectedDays = selectedDaysOfWeek,
+            selectedDayOfMonth = selectedDayOfMonth,
             onDismiss = { showRecurringDialog = false },
-            onConfirm = { frequency, days ->
+            onConfirm = { frequency, days, dayOfMonth -> 
                 recurringFrequency = frequency
                 selectedDaysOfWeek = days
+                selectedDayOfMonth = dayOfMonth
                 showRecurringDialog = false
             }
         )
@@ -1095,11 +1108,13 @@ private fun DatePickerDialog(
 private fun RecurringScheduleDialog(
     frequency: RecurringFrequency,
     selectedDays: Set<Int>,
+    selectedDayOfMonth: Int?,
     onDismiss: () -> Unit,
-    onConfirm: (RecurringFrequency, Set<Int>) -> Unit
+    onConfirm: (RecurringFrequency, Set<Int>, Int?) -> Unit
 ) {
     var tempFrequency by remember { mutableStateOf(frequency) }
     var tempDays by remember { mutableStateOf(selectedDays) }
+    var tempDayOfMonth by remember { mutableStateOf(selectedDayOfMonth) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1185,12 +1200,62 @@ private fun RecurringScheduleDialog(
                         )
                     }
                 }
+
+                // Day of month selector (only for monthly)
+                if (tempFrequency == RecurringFrequency.MONTHLY) {
+                    Text(
+                        text = "Day of Month",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                    
+                    // Create a grid of day numbers (1-31)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Group days into rows of 7 for better layout
+                        (1..31).chunked(7).forEach { rowDays ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                rowDays.forEach { day ->
+                                    val isSelected = tempDayOfMonth == day
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            tempDayOfMonth = if (isSelected) null else day
+                                        },
+                                        label = { Text(day.toString()) }
+                                    )
+                                }
+                                // Fill remaining slots with empty space for alignment
+                                repeat(7 - rowDays.size) {
+                                    Spacer(modifier = Modifier.width(48.dp))
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (tempDayOfMonth == null) {
+                        Text(
+                            text = "Select a day of the month",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(tempFrequency, tempDays) },
-                enabled = tempFrequency != RecurringFrequency.WEEKLY || tempDays.isNotEmpty()
+                onClick = { onConfirm(tempFrequency, tempDays, tempDayOfMonth) },
+                enabled = when (tempFrequency) {
+                    RecurringFrequency.WEEKLY -> tempDays.isNotEmpty()
+                    RecurringFrequency.MONTHLY -> tempDayOfMonth != null
+                    RecurringFrequency.DAILY -> true
+                }
             ) {
                 Text("Save")
             }

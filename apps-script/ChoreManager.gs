@@ -1097,8 +1097,37 @@ function createChoreInstanceFromTemplate(template, ownerEmail, folderId, accessT
         const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
         dueDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilSunday);
       } else if (frequency === 'monthly' || frequency === 'MONTHLY') {
-        // Due at end of month
-        dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        // Use specified day of month, or default to end of month
+        const targetDay = recurring.dayOfMonth || null;
+        if (targetDay !== null && targetDay >= 1 && targetDay <= 31) {
+          try {
+            // Try to set the day in the current month
+            const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const dayToUse = Math.min(targetDay, daysInCurrentMonth);
+            const targetDate = new Date(now.getFullYear(), now.getMonth(), dayToUse);
+            targetDate.setHours(0, 0, 0, 0);
+            
+            // If the day has already passed this month, move to next month
+            const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            nowDateOnly.setHours(0, 0, 0, 0);
+            
+            if (targetDate < nowDateOnly) {
+              // Move to next month
+              const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+              const daysInNextMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
+              const nextDayToUse = Math.min(targetDay, daysInNextMonth);
+              dueDate = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), nextDayToUse);
+            } else {
+              dueDate = targetDate;
+            }
+          } catch (e) {
+            // If day doesn't exist in current month, use last day
+            dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+          }
+        } else {
+          // Default to end of month if no dayOfMonth specified
+          dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        }
       } else {
         return null; // Unknown frequency
       }

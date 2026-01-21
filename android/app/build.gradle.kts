@@ -69,6 +69,9 @@ android {
             excludes += "/META-INF/NOTICE.txt"
             excludes += "/META-INF/*.kotlin_module"
         }
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 }
 
@@ -93,13 +96,13 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.5")
     
-    // CameraX for QR scanning
-    implementation("androidx.camera:camera-camera2:1.3.0")
-    implementation("androidx.camera:camera-lifecycle:1.3.0")
-    implementation("androidx.camera:camera-view:1.3.0")
+    // CameraX for QR scanning (updated for 16KB page size compatibility)
+    implementation("androidx.camera:camera-camera2:1.4.0")
+    implementation("androidx.camera:camera-lifecycle:1.4.0")
+    implementation("androidx.camera:camera-view:1.4.0")
     
-    // ML Kit Barcode Scanning
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    // ML Kit Barcode Scanning (updated for 16KB page size compatibility)
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     
     // ZXing for QR code generation
     implementation("com.google.zxing:core:3.5.2")

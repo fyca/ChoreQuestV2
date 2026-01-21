@@ -9,12 +9,12 @@ object Constants {
     // Google Apps Script Web App URL (full deployment URL)
     // Format: https://script.google.com/macros/s/SCRIPT_ID/exec
     // Note: No trailing slash - Apps Script doesn't work with it, and we'll handle it in Retrofit config
-    const val APPS_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwpyWr94eySQ8SXnlg2wHIcdum27rpnuzayF7sEt6CdLS8FDNfLf3XBo86eRTERsqou/exec"
+    const val APPS_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzpjXFuwzMT_wzoPwsF3xm9rp8ZaYd69_wV-nRqAyfYKPlGh7Uxomu5EkFsCuUMX1O6fQ/exec"
     
     // Google OAuth Web Client ID (from Google Cloud Console)
     // IMPORTANT: This MUST be the Web application client ID, NOT the Android client ID
     // Get this from: Google Cloud Console > APIs & Services > Credentials
-    const val GOOGLE_WEB_CLIENT_ID = "156195149694-a3c7v365m6a2rhq46icqh1c13oi6r8h2.apps.googleusercontent.com"
+    const val GOOGLE_WEB_CLIENT_ID = "986987173712-tdn6gnqeec49jccdsg221aq7skgeqo70.apps.googleusercontent.com"
     
     // API Endpoints
     object ApiPaths {

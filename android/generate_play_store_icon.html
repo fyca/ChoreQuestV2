@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChoreQuest Play Store Icon Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #4A90E2;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            display: block;
+            margin: 20px auto;
+            background: white;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background: #4A90E2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #357ABD;
+        }
+        .info {
+            background: #E8F4FD;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #4A90E2;
+        }
+        .sizes {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .size-btn {
+            padding: 10px;
+            background: #f0f0f0;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+        }
+        .size-btn:hover {
+            border-color: #4A90E2;
+            background: #E8F4FD;
+        }
+        .size-btn.active {
+            border-color: #4A90E2;
+            background: #4A90E2;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 ChoreQuest Icon Generator</h1>
+        <p class="subtitle">Generate Play Store icons (PNG format)</p>
+        
+        <div class="info">
+            <strong>Play Store Requirements:</strong><br>
+            • 512x512 PNG (required)<br>
+            • No transparency (solid background)<br>
+            • PNG format (not JPEG)
+        </div>
+
+        <div class="controls">
+            <label>Icon Size:</label>
+            <div class="sizes">
+                <div class="size-btn active" onclick="setSize(512)">512x512 (Play Store)</div>
+                <div class="size-btn" onclick="setSize(1024)">1024x1024 (High-res)</div>
+                <div class="size-btn" onclick="setSize(256)">256x256</div>
+            </div>
+        </div>
+
+        <canvas id="iconCanvas" width="512" height="512"></canvas>
+
+        <div class="controls">
+            <button onclick="downloadIcon()">Download PNG Icon</button>
+            <button onclick="previewIcon()">Preview</button>
+        </div>
+    </div>
+
+    <script>
+        let currentSize = 512;
+        const canvas = document.getElementById('iconCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function setSize(size) {
+            currentSize = size;
+            canvas.width = size;
+            canvas.height = size;
+            
+            // Update active button
+            document.querySelectorAll('.size-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            drawIcon();
+        }
+
+        function drawIcon() {
+            const size = canvas.width;
+            const centerX = size / 2;
+            const centerY = size / 2;
+            const scale = size / 108; // Original viewport is 108x108
+
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+
+            // Background gradient
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#4A90E2'); // Sky Blue
+            gradient.addColorStop(1, '#9B59B6'); // Purple
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+
+            // Yellow accent overlay
+            ctx.fillStyle = 'rgba(255, 217, 61, 0.3)'; // Sunshine Yellow with transparency
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(size, size / 2);
+            ctx.lineTo(0, size);
+            ctx.closePath();
+            ctx.fill();
+
+            // Purple overlay
+            ctx.fillStyle = 'rgba(155, 89, 182, 0.6)';
+            ctx.fillRect(0, 0, size, size);
+
+            // Scale and translate for foreground
+            ctx.save();
+            const foregroundScale = 0.7 * scale;
+            const translateX = 16.2 * scale;
+            const translateY = 16.2 * scale;
+            ctx.translate(translateX, translateY);
+            ctx.scale(foregroundScale, foregroundScale);
+
+            // Shield/Badge shape (centered at 54,54 in original coordinates)
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            ctx.moveTo(54, 12);
+            ctx.bezierCurveTo(40, 12, 28, 18, 28, 28);
+            ctx.lineTo(28, 42);
+            ctx.bezierCurveTo(28, 52, 40, 58, 54, 70);
+            ctx.bezierCurveTo(68, 58, 80, 52, 80, 42);
+            ctx.lineTo(80, 28);
+            ctx.bezierCurveTo(80, 18, 68, 12, 54, 12);
+            ctx.closePath();
+            ctx.fill();
+
+            // Inner highlight
+            ctx.fillStyle = '#E8F4FD';
+            ctx.beginPath();
+            ctx.moveTo(54, 16);
+            ctx.bezierCurveTo(42, 16, 32, 20, 32, 28);
+            ctx.lineTo(32, 42);
+            ctx.bezierCurveTo(32, 50, 42, 54, 54, 64);
+            ctx.bezierCurveTo(66, 54, 76, 50, 76, 42);
+            ctx.lineTo(76, 28);
+            ctx.bezierCurveTo(76, 20, 66, 16, 54, 16);
+            ctx.closePath();
+            ctx.fill();
+
+            // Checkmark
+            ctx.fillStyle = '#27AE60'; // Grass Green
+            ctx.beginPath();
+            ctx.moveTo(42, 38);
+            ctx.lineTo(48, 44);
+            ctx.lineTo(66, 26);
+            ctx.lineTo(64, 24);
+            ctx.lineTo(48, 40);
+            ctx.lineTo(44, 36);
+            ctx.lineTo(40, 40);
+            ctx.closePath();
+            ctx.fill();
+
+            // Star decoration
+            ctx.fillStyle = '#FFD93D'; // Sunshine Yellow
+            ctx.beginPath();
+            // Star points
+            const starX = 54;
+            const starY = 20;
+            const starSize = 6;
+            ctx.moveTo(starX, starY);
+            for (let i = 0; i < 5; i++) {
+                const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+                const x = starX + Math.cos(angle) * starSize;
+                const y = starY + Math.sin(angle) * starSize;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            // Inner star
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2 + Math.PI / 5;
+                const x = starX + Math.cos(angle) * (starSize * 0.4);
+                const y = starY + Math.sin(angle) * (starSize * 0.4);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function downloadIcon() {
+            const link = document.createElement('a');
+            link.download = `chorequest_icon_${currentSize}x${currentSize}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function previewIcon() {
+            drawIcon();
+        }
+
+        // Initial draw
+        drawIcon();
+    </script>
+</body>
+</html>

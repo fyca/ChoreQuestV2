@@ -1,25 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Background -->
+    <!-- Background gradient -->
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#4ECDC4" />
+            <gradient
+                android:startColor="#4A90E2"
+                android:endColor="#9B59B6"
+                android:angle="135" />
             <corners android:radius="16dp" />
         </shape>
     </item>
-    <!-- Foreground checkmark -->
+    <!-- Foreground shield badge -->
     <item
         android:gravity="center"
-        android:width="48dp"
-        android:height="48dp">
+        android:width="56dp"
+        android:height="56dp">
         <vector
-            android:width="48dp"
-            android:height="48dp"
-            android:viewportWidth="24"
-            android:viewportHeight="24">
+            android:width="56dp"
+            android:height="56dp"
+            android:viewportWidth="56"
+            android:viewportHeight="56">
+            <!-- Shield shape -->
             <path
                 android:fillColor="#FFFFFF"
-                android:pathData="M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z" />
+                android:pathData="M28,6 C20,6 14,10 14,16 L14,22 C14,28 20,32 28,40 C36,32 42,28 42,22 L42,16 C42,10 36,6 28,6 Z" />
+            <!-- Checkmark -->
+            <path
+                android:fillColor="#27AE60"
+                android:pathData="M22,20 L26,24 L34,16 L32,14 L26,20 L24,18 Z" />
         </vector>
     </item>
 </layer-list>

@@ -60,6 +60,7 @@ export interface Chore {
   subtasks: Subtask[];
   status: ChoreStatus;
   photoProof?: string;
+  requirePhotoProof?: boolean;
   completedBy?: string;
   completedAt?: string;
   verifiedBy?: string;

@@ -14,6 +14,7 @@ import com.lostsierra.chorequest.domain.models.RewardRedemption
 import com.lostsierra.chorequest.domain.models.RewardRedemptionStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
@@ -31,7 +32,8 @@ class ParentDashboardViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val syncRepository: com.lostsierra.chorequest.data.repository.SyncRepository,
     val syncManager: com.lostsierra.chorequest.workers.SyncManager,
-    private val networkObserver: com.lostsierra.chorequest.utils.NetworkConnectivityObserver
+    private val networkObserver: com.lostsierra.chorequest.utils.NetworkConnectivityObserver,
+    private val appPreferencesManager: com.lostsierra.chorequest.data.local.AppPreferencesManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ParentDashboardState>(ParentDashboardState.Loading)
@@ -50,6 +52,18 @@ class ParentDashboardViewModel @Inject constructor(
         // Load dashboard data directly when screen opens (on-demand)
         viewModelScope.launch {
             loadDashboardData()
+            loadLastSyncTime()
+        }
+        
+        // Set up periodic refresh based on sync interval preference
+        viewModelScope.launch {
+            while (true) {
+                val syncIntervalMs = appPreferencesManager.getSyncIntervalMinutes() * 60 * 1000
+                delay(syncIntervalMs)
+                // Trigger refresh to reload data from repositories
+                refresh()
+                loadLastSyncTime()
+            }
         }
     }
     
@@ -133,10 +147,16 @@ class ParentDashboardViewModel @Inject constructor(
     }
 
     /**
-     * Refresh dashboard data
+     * Refresh dashboard data - triggers sync and reloads data
      */
     fun refresh() {
-        loadDashboardData()
+        viewModelScope.launch {
+            // Trigger sync to reload data from Drive
+            syncRepository.syncAll(forceSync = true)
+            // Reload dashboard data after sync
+            loadDashboardData()
+            loadLastSyncTime()
+        }
     }
 
     /**

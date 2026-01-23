@@ -163,6 +163,7 @@ fun CompleteChoreScreen(
             val chore = state.chore
             val allSubtasksCompleted = subtasks.isEmpty() || subtasks.all { it.completed }
             val isLoading = isCompleting || uploadProgress != com.lostsierra.chorequest.presentation.chores.UploadProgress.Idle
+            val canComplete = allSubtasksCompleted && (!chore.requirePhotoProof || photoUri != null)
 
             Box(modifier = Modifier.fillMaxSize()) {
                 Scaffold(
@@ -191,13 +192,25 @@ fun CompleteChoreScreen(
                                 Text("Cancel")
                             }
                             Button(
-                                onClick = { showConfirmDialog = true },
+                                onClick = { 
+                                    if (canComplete) {
+                                        showConfirmDialog = true
+                                    } else if (chore.requirePhotoProof && photoUri == null) {
+                                        // Show a message or do nothing - button is disabled
+                                    }
+                                },
                                 modifier = Modifier.weight(1f),
-                                enabled = allSubtasksCompleted && !isLoading
+                                enabled = canComplete && !isLoading
                             ) {
                                 Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Complete!")
+                                Text(
+                                    text = if (chore.requirePhotoProof && photoUri == null) {
+                                        "Photo Required"
+                                    } else {
+                                        "Complete!"
+                                    }
+                                )
                             }
                         }
                     }
@@ -290,10 +303,41 @@ fun CompleteChoreScreen(
                     // Photo proof section
                     item {
                         Text(
-                            text = "📸 Photo Proof (Optional)",
+                            text = if (chore.requirePhotoProof) "📸 Photo Proof (Required)" else "📸 Photo Proof (Optional)",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                    
+                    // Show message if photo is required
+                    if (chore.requirePhotoProof && photoUri == null) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "A photo is required to complete this chore",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     item {

@@ -38,7 +38,7 @@ object Constants {
     // Polling Intervals (milliseconds)
     object PollingIntervals {
         const val FOREGROUND_ACTIVE = 30000L        // 30 seconds when app is active
-        const val BACKGROUND = 900000L              // 15 minutes when app is in background
+        const val BACKGROUND = 180000L              // 3 minutes when app is in background (180000ms = 3 minutes)
         const val SMART_POLLING = 10000L            // 10 seconds for 2 minutes after user action
         const val SMART_POLLING_DURATION = 120000L  // 2 minutes
     }
@@ -110,13 +110,18 @@ object Constants {
         const val CHORE_OVERDUE = "chore_overdue"
         const val CHORE_ASSIGNED = "chore_assigned"
         const val CHORE_COMPLETED = "chore_completed"
+        const val CHORE_VERIFIED = "chore_verified"
         const val POINTS_EARNED = "points_earned"
+        const val POINTS_AWARDED = "points_awarded"
         const val REWARD_REDEEMED = "reward_redeemed"
     }
     
     // Notification Channels
     object NotificationChannels {
+        const val DEFAULT = "default"
         const val CHORES_CHANNEL_ID = "chores_channel"
+        const val CHORE_UPDATES = "chore_updates"
+        const val POINTS_UPDATES = "points_updates"
         const val REWARDS_CHANNEL_ID = "rewards_channel"
         const val SYNC_CHANNEL_ID = "sync_channel"
     }

@@ -122,7 +122,7 @@ function handleChoresPost(e, data) {
  */
 function createChore(data) {
   try {
-    const { creatorId, title, description, assignedTo, pointValue, dueDate, recurring, subtasks, color, icon } = data;
+    const { creatorId, title, description, assignedTo, pointValue, dueDate, recurring, subtasks, color, icon, requirePhotoProof } = data;
     
     if (!creatorId || !title || !assignedTo || !pointValue) {
       return createResponse({ error: 'Missing required fields' }, 400);
@@ -229,6 +229,7 @@ function createChore(data) {
       subtasks: subtasks || [],
       status: 'pending',
       photoProof: null,
+      requirePhotoProof: requirePhotoProof || false,
       completedBy: null,
       completedAt: null,
       verifiedBy: null,
@@ -325,7 +326,7 @@ function updateChore(data) {
     }
     
     // Update allowed fields
-    const allowedFields = ['title', 'description', 'assignedTo', 'pointValue', 'dueDate', 'recurring', 'subtasks', 'color', 'icon'];
+    const allowedFields = ['title', 'description', 'assignedTo', 'pointValue', 'dueDate', 'recurring', 'subtasks', 'color', 'icon', 'requirePhotoProof'];
     const updatedFields = [];
     
     allowedFields.forEach(field => {

@@ -15,7 +15,7 @@ import com.lostsierra.chorequest.data.local.entities.*
         TransactionEntity::class,
         RewardRedemptionEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

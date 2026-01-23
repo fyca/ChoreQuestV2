@@ -373,7 +373,8 @@ data class CreateChoreRequest(
     val recurring: RecurringSchedule? = null,
     val subtasks: List<Subtask>? = null,
     val color: String? = null,
-    val icon: String? = null
+    val icon: String? = null,
+    val requirePhotoProof: Boolean = false
 )
 
 /**
@@ -397,7 +398,8 @@ data class ChoreUpdates(
     val recurring: RecurringSchedule? = null,
     val subtasks: List<Subtask>? = null,
     val color: String? = null,
-    val icon: String? = null
+    val icon: String? = null,
+    val requirePhotoProof: Boolean? = null
 )
 
 /**

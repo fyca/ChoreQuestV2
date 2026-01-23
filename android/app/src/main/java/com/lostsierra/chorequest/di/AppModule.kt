@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.lostsierra.chorequest.data.local.ChoreQuestDatabase
 import com.lostsierra.chorequest.data.local.CustomRoomCallback
 import com.lostsierra.chorequest.data.local.migrations.MIGRATION_1_2
+import com.lostsierra.chorequest.data.local.migrations.MIGRATION_3_4
 import com.lostsierra.chorequest.data.remote.ChoreQuestApi
 import com.lostsierra.chorequest.utils.Constants
 import com.lostsierra.chorequest.data.remote.ActivityActionTypeDeserializer
@@ -145,7 +146,7 @@ object AppModule {
             "chorequest_database_v2" // Changed name to force fresh database
         )
             .addCallback(CustomRoomCallback())
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
     }

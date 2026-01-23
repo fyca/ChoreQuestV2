@@ -827,6 +827,7 @@ class ChoreRepository @Inject constructor(
                 },
                 status = ChoreStatus.PENDING,
                 photoProof = null,
+                requirePhotoProof = template.requirePhotoProof,
                 completedBy = null,
                 completedAt = null,
                 verifiedBy = null,
@@ -1281,7 +1282,8 @@ class ChoreRepository @Inject constructor(
                             subtasks = chore.subtasks,
                             createdAt = java.time.Instant.now().toString(),
                             color = chore.color,
-                            icon = chore.icon
+                            icon = chore.icon,
+                            requirePhotoProof = chore.requirePhotoProof
                         )
                         
                         // Add template to list
@@ -1393,7 +1395,8 @@ class ChoreRepository @Inject constructor(
                 recurring = chore.recurring,
                 subtasks = chore.subtasks,
                 color = null, // TODO: Add color/icon support
-                icon = null
+                icon = null,
+                requirePhotoProof = chore.requirePhotoProof
             )
 
             val response = api.createChore(request = request)
@@ -1519,7 +1522,8 @@ class ChoreRepository @Inject constructor(
             recurring = chore.recurring,
             subtasks = chore.subtasks,
             color = null,
-            icon = null
+            icon = null,
+            requirePhotoProof = chore.requirePhotoProof
         )
 
         val request = UpdateChoreRequest(

@@ -73,6 +73,7 @@ fun CreateEditChoreScreen(
     var selectedDaysOfWeek by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var selectedDayOfMonth by remember { mutableStateOf<Int?>(null) }
     var showRecurringDialog by remember { mutableStateOf(false) }
+    var requirePhotoProof by remember { mutableStateOf(false) }
     
     val isEditing = choreId != null
 
@@ -101,6 +102,7 @@ fun CreateEditChoreScreen(
                 }
             }
             isRecurring = chore.recurring != null
+            requirePhotoProof = chore.requirePhotoProof
             chore.recurring?.let { recurring ->
                 recurringFrequency = recurring.frequency
                 selectedDaysOfWeek = recurring.daysOfWeek?.toSet() ?: emptySet()
@@ -215,7 +217,8 @@ fun CreateEditChoreScreen(
                                             pointValue = pointValue.toInt(),
                                             dueDate = dueDate?.toString(),
                                             subtasks = subtasks,
-                                            recurring = recurringSchedule
+                                            recurring = recurringSchedule,
+                                            requirePhotoProof = requirePhotoProof
                                         )
                                     )
                                 } else {
@@ -229,7 +232,8 @@ fun CreateEditChoreScreen(
                                         subtasks = subtasks,
                                         color = null,
                                         icon = null,
-                                        recurring = recurringSchedule
+                                        recurring = recurringSchedule,
+                                        requirePhotoProof = requirePhotoProof
                                     )
                                 }
                             }
@@ -646,6 +650,52 @@ fun CreateEditChoreScreen(
                                 isRecurring = it
                                 if (it) showRecurringDialog = true
                             }
+                        )
+                    }
+                }
+            }
+
+            // Photo Proof Requirement
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Require Photo Proof",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = if (requirePhotoProof) "Children must take a photo when completing this chore" else "Photo proof is optional",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = requirePhotoProof,
+                            onCheckedChange = { requirePhotoProof = it }
                         )
                     }
                 }
@@ -1070,8 +1120,10 @@ private fun DatePickerDialog(
     onConfirm: (LocalDate) -> Unit
 ) {
     val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = selectedDate?.atStartOfDay(java.time.ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
-            ?: System.currentTimeMillis()
+        initialSelectedDateMillis = selectedDate?.let {
+            // Convert LocalDate to milliseconds at midnight UTC to match DatePicker's behavior
+            it.atStartOfDay(java.time.ZoneId.of("UTC")).toInstant().toEpochMilli()
+        } ?: System.currentTimeMillis()
     )
 
     androidx.compose.material3.DatePickerDialog(

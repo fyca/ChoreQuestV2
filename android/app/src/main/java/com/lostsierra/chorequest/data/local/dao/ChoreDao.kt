@@ -9,6 +9,9 @@ interface ChoreDao {
 
     @Query("SELECT * FROM chores ORDER BY createdAt DESC")
     fun getAllChores(): Flow<List<ChoreEntity>>
+    
+    @Query("SELECT * FROM chores ORDER BY createdAt DESC")
+    suspend fun getAllChoresSync(): List<ChoreEntity>
 
     @Query("SELECT * FROM chores WHERE id = :choreId")
     suspend fun getChoreById(choreId: String): ChoreEntity?

@@ -19,7 +19,9 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val userRepository: UserRepository,
     private val dataRepository: DataRepository,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val appPreferencesManager: com.lostsierra.chorequest.data.local.AppPreferencesManager,
+    private val syncManager: com.lostsierra.chorequest.workers.SyncManager
 ) : ViewModel() {
 
     private val _currentUser = MutableStateFlow<User?>(null)
@@ -31,6 +33,18 @@ class SettingsViewModel @Inject constructor(
 
     private val _deleteAllDataState = MutableStateFlow<DeleteAllDataState>(DeleteAllDataState.Idle)
     val deleteAllDataState: StateFlow<DeleteAllDataState> = _deleteAllDataState.asStateFlow()
+
+    val syncIntervalMinutes: StateFlow<Long> = MutableStateFlow(appPreferencesManager.getSyncIntervalMinutes())
+        .asStateFlow()
+
+    /**
+     * Update sync interval and reschedule sync work
+     */
+    fun setSyncIntervalMinutes(minutes: Long) {
+        appPreferencesManager.setSyncIntervalMinutes(minutes)
+        syncManager.scheduleSyncWork(minutes)
+        (syncIntervalMinutes as MutableStateFlow).value = minutes
+    }
 
     init {
         loadCurrentUser()

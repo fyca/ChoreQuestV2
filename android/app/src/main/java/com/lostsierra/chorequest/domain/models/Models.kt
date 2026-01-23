@@ -89,6 +89,7 @@ data class Chore(
     val subtasks: List<Subtask>,
     val status: ChoreStatus,
     val photoProof: String? = null,
+    val requirePhotoProof: Boolean = false, // Whether photo proof is required for this chore
     val completedBy: String? = null,
     val completedAt: String? = null,
     val verifiedBy: String? = null,
@@ -129,6 +130,7 @@ data class ChoreTemplate(
     val createdAt: String,
     val color: String? = null,
     val icon: String? = null,
+    val requirePhotoProof: Boolean = false,
     val lastCycleId: String? = null, // Last cycle ID for which an instance was created
     val lastDueDate: String? = null // Last due date of created instance
 )

@@ -229,6 +229,28 @@ private fun ChildChoreCard(
                     }
                 }
                 
+                // Photo proof requirement indicator
+                if (chore.requirePhotoProof && chore.status == ChoreStatus.PENDING) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Photo required",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                
                 // Time remaining countdown
                 if (timeRemaining != null) {
                     Spacer(modifier = Modifier.height(4.dp))

@@ -12,27 +12,39 @@ import javax.inject.Singleton
 
 @Singleton
 class SyncManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val appPreferencesManager: com.lostsierra.chorequest.data.local.AppPreferencesManager
 ) {
     private val workManager = WorkManager.getInstance(context)
 
     companion object {
-        private const val SYNC_INTERVAL_MINUTES = 15L
-        private const val SYNC_FLEX_INTERVAL_MINUTES = 5L
+        private const val SYNC_FLEX_INTERVAL_MINUTES = 1L
     }
 
     /**
-     * Schedules periodic background sync
+     * Schedules periodic background sync using interval from preferences
      */
     fun scheduleSyncWork() {
+        val syncIntervalMinutes = appPreferencesManager.getSyncIntervalMinutes()
+        scheduleSyncWork(syncIntervalMinutes)
+    }
+
+    /**
+     * Schedules periodic background sync with specified interval
+     * Reschedules existing work if interval changed
+     */
+    fun scheduleSyncWork(intervalMinutes: Long) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
+        // Calculate flex interval (should be less than repeat interval, minimum 1 minute)
+        val flexIntervalMinutes = minOf(SYNC_FLEX_INTERVAL_MINUTES, intervalMinutes / 2).coerceAtLeast(1L)
+
         val syncWorkRequest = PeriodicWorkRequestBuilder<SyncWorker>(
-            repeatInterval = SYNC_INTERVAL_MINUTES,
+            repeatInterval = intervalMinutes,
             repeatIntervalTimeUnit = TimeUnit.MINUTES,
-            flexTimeInterval = SYNC_FLEX_INTERVAL_MINUTES,
+            flexTimeInterval = flexIntervalMinutes,
             flexTimeIntervalUnit = TimeUnit.MINUTES
         )
             .setConstraints(constraints)
@@ -44,9 +56,10 @@ class SyncManager @Inject constructor(
             .addTag(SyncWorker.TAG)
             .build()
 
+        // Use REPLACE to reschedule with new interval if it changed
         workManager.enqueueUniquePeriodicWork(
             SyncWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.REPLACE,
             syncWorkRequest
         )
     }

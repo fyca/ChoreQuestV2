@@ -106,7 +106,8 @@ class ChoreViewModel @Inject constructor(
         subtasks: List<Subtask>,
         color: String?,
         icon: String?,
-        recurring: RecurringSchedule? = null
+        recurring: RecurringSchedule? = null,
+        requirePhotoProof: Boolean = false
     ) {
         viewModelScope.launch {
             val session = sessionManager.loadSession() ?: return@launch
@@ -122,6 +123,7 @@ class ChoreViewModel @Inject constructor(
                 recurring = recurring,
                 subtasks = subtasks,
                 status = ChoreStatus.PENDING,
+                requirePhotoProof = requirePhotoProof,
                 createdAt = Instant.now().toString()
             )
 

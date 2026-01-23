@@ -31,12 +31,12 @@ class SyncRepository @Inject constructor(
     private val sessionManager: SessionManager,
     private val gson: Gson,
     private val driveApiService: com.lostsierra.chorequest.data.drive.DriveApiService,
-    private val tokenManager: com.lostsierra.chorequest.data.drive.TokenManager
+    private val tokenManager: com.lostsierra.chorequest.data.drive.TokenManager,
+    private val notificationManager: com.lostsierra.chorequest.services.NotificationManager,
+    private val appPreferencesManager: com.lostsierra.chorequest.data.local.AppPreferencesManager
 ) {
     companion object {
         private const val TAG = "SyncRepository"
-        private const val SYNC_INTERVAL_MINUTES = 15L
-        private const val SYNC_INTERVAL_MS = SYNC_INTERVAL_MINUTES * 60 * 1000
     }
 
     /**
@@ -56,10 +56,12 @@ class SyncRepository @Inject constructor(
             if (!forceSync) {
                 val lastSynced = session.lastSynced
                 if (lastSynced != null) {
+                    val syncIntervalMinutes = appPreferencesManager.getSyncIntervalMinutes()
+                    val syncIntervalMs = syncIntervalMinutes * 60 * 1000
                     val timeSinceLastSync = System.currentTimeMillis() - lastSynced
-                    if (timeSinceLastSync < SYNC_INTERVAL_MS) {
+                    if (timeSinceLastSync < syncIntervalMs) {
                         val minutesSinceSync = timeSinceLastSync / (60 * 1000)
-                        Log.d(TAG, "Skipping sync - only ${minutesSinceSync} minutes since last sync (need ${SYNC_INTERVAL_MINUTES} minutes)")
+                        Log.d(TAG, "Skipping sync - only ${minutesSinceSync} minutes since last sync (need ${syncIntervalMinutes} minutes)")
                         return@withContext true // Return true since skipping is not an error
                     }
                 }
@@ -109,11 +111,18 @@ class SyncRepository @Inject constructor(
                     if (choresData != null) {
                         val chores = choresData.chores ?: emptyList()
                         
+                        // Get previous chores for notification checking
+                        val previousChores = choreDao.getAllChoresSync().map { it.toDomain() }
+                        
                         // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
                         choreDao.deleteAllChores()
                         if (chores.isNotEmpty()) {
                             choreDao.insertChores(chores.map { it.toEntity() })
                         }
+                        
+                        // Check for notifications after syncing
+                        notificationManager.checkAndDisplayNotifications(previousChores, chores)
+                        
                         Log.d(TAG, "Synced ${chores.size} chores via Drive API")
                         return
                     } else {
@@ -145,11 +154,18 @@ class SyncRepository @Inject constructor(
                     
                     val chores = choresData.chores ?: emptyList()
                     
+                    // Get previous chores for notification checking
+                    val previousChores = choreDao.getAllChoresSync().map { it.toDomain() }
+                    
                     // IMPORTANT: Only delete local data AFTER successfully fetching and parsing from Drive
                     choreDao.deleteAllChores()
                     if (chores.isNotEmpty()) {
                         choreDao.insertChores(chores.map { it.toEntity() })
                     }
+                    
+                    // Check for notifications after syncing
+                    notificationManager.checkAndDisplayNotifications(previousChores, chores)
+                    
                     Log.d(TAG, "Synced ${chores.size} chores via Apps Script")
                 } else {
                     Log.w(TAG, "No chores data in response body - keeping existing local data")

@@ -51,6 +51,8 @@ fun ChoreDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showVerifyDialog by remember { mutableStateOf(false) }
     var verifyError by remember { mutableStateOf<String?>(null) }
+    
+    val isVerifying = createEditState is CreateEditState.Loading
 
     LaunchedEffect(choreId) {
         viewModel.loadChoreDetail(choreId)
@@ -98,12 +100,23 @@ fun ChoreDetailScreen(
                 topBar = {
                     ChoreQuestTopAppBar(
                         title = "Chore Details",
-                        onNavigateBack = onNavigateBack,
+                        onNavigateBack = {
+                            if (!isVerifying) {
+                                onNavigateBack()
+                            }
+                        },
                         actions = {
-                            IconButton(onClick = { onNavigateToEdit(choreId) }) {
+                            IconButton(
+                                onClick = { onNavigateToEdit(choreId) },
+                                enabled = !isVerifying
+                            ) {
                                 Icon(Icons.Default.Edit, "Edit")
                             }
-                            IconButton(onClick = { showDeleteDialog = true }) {
+                            IconButton(
+                                onClick = { showDeleteDialog = true },
+                                enabled = !isVerifying,
+                                modifier = Modifier
+                            ) {
                                 Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
                             }
                         }
@@ -124,27 +137,39 @@ fun ChoreDetailScreen(
                                 Button(
                                     onClick = { showVerifyDialog = true },
                                     modifier = Modifier.weight(1f),
+                                    enabled = !isVerifying,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.secondary
                                     )
                                 ) {
-                                    Icon(Icons.Default.Verified, null, modifier = Modifier.size(20.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Verify & Award Points")
+                                    if (isVerifying) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            color = MaterialTheme.colorScheme.onSecondary,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Verifying...")
+                                    } else {
+                                        Icon(Icons.Default.Verified, null, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Verify & Award Points")
+                                    }
                                 }
                             }
                         }
                     }
                 }
             ) { padding ->
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item { Spacer(modifier = Modifier.height(8.dp)) }
 
                     // Chore header
                     item {
@@ -597,6 +622,33 @@ fun ChoreDetailScreen(
                     }
 
                     item { Spacer(modifier = Modifier.height(16.dp)) }
+                    }
+                    
+                    // Loading overlay when verifying
+                    if (isVerifying) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                                .clickable(enabled = false) { },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(48.dp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Verifying chore...",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -638,30 +690,65 @@ fun ChoreDetailScreen(
             // Verify confirmation dialog
             if (showVerifyDialog) {
                 AlertDialog(
-                    onDismissRequest = { showVerifyDialog = false },
+                    onDismissRequest = { if (!isVerifying) showVerifyDialog = false },
                     icon = {
-                        Icon(
-                            imageVector = Icons.Default.Verified,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(48.dp)
-                        )
+                        if (isVerifying) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(48.dp),
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
                     },
-                    title = { Text("Verify Completion?", fontWeight = FontWeight.Bold) },
-                    text = { Text("Award ${chore.pointValue} points to the user who completed this chore?") },
+                    title = { 
+                        Text(
+                            if (isVerifying) "Verifying..." else "Verify Completion?", 
+                            fontWeight = FontWeight.Bold
+                        ) 
+                    },
+                    text = { 
+                        Text(
+                            if (isVerifying) 
+                                "Awarding ${chore.pointValue} points..." 
+                            else 
+                                "Award ${chore.pointValue} points to the user who completed this chore?"
+                        ) 
+                    },
                     confirmButton = {
                         Button(
                             onClick = {
-                                verifyError = null
-                                viewModel.verifyChore(choreId = chore.id, approved = true)
-                                showVerifyDialog = false
-                            }
+                                if (!isVerifying) {
+                                    verifyError = null
+                                    viewModel.verifyChore(choreId = chore.id, approved = true)
+                                    // Don't close dialog immediately - let it show loading state
+                                }
+                            },
+                            enabled = !isVerifying
                         ) {
-                            Text("Verify & Award")
+                            if (isVerifying) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Verifying...")
+                            } else {
+                                Text("Verify & Award")
+                            }
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showVerifyDialog = false }) {
+                        TextButton(
+                            onClick = { showVerifyDialog = false },
+                            enabled = !isVerifying
+                        ) {
                             Text("Cancel")
                         }
                     }
@@ -684,11 +771,15 @@ fun ChoreDetailScreen(
             LaunchedEffect(createEditState) {
                 when (val s = createEditState) {
                     is CreateEditState.Success -> {
+                        // Close dialog and navigate back
+                        showVerifyDialog = false
                         // If we just verified, return to dashboard
                         onNavigateBack()
                         viewModel.resetCreateEditState()
                     }
                     is CreateEditState.Error -> {
+                        // Close dialog and show error
+                        showVerifyDialog = false
                         verifyError = s.message
                         viewModel.resetCreateEditState()
                     }

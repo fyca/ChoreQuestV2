@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.lostsierra.chorequest.presentation.components.ChoreQuestTopAppBar
 
@@ -28,9 +29,11 @@ fun SettingsScreen(
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showSyncIntervalDialog by remember { mutableStateOf(false) }
     
     val isPrimaryParent by viewModel.isPrimaryParent.collectAsState()
     val deleteState by viewModel.deleteAllDataState.collectAsState()
+    val syncIntervalMinutes by viewModel.syncIntervalMinutes.collectAsState()
 
     Scaffold(
         topBar = {
@@ -97,6 +100,15 @@ fun SettingsScreen(
                 )
             }
 
+            item {
+                SettingsItem(
+                    icon = Icons.Default.Sync,
+                    title = "Background Sync Interval",
+                    subtitle = "Currently: ${syncIntervalMinutes} minute${if (syncIntervalMinutes != 1L) "s" else ""}",
+                    onClick = { showSyncIntervalDialog = true }
+                )
+            }
+
             // Danger zone
             item {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -131,6 +143,18 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    // Sync interval dialog
+    if (showSyncIntervalDialog) {
+        SyncIntervalDialog(
+            currentInterval = syncIntervalMinutes,
+            onDismiss = { showSyncIntervalDialog = false },
+            onIntervalSelected = { minutes ->
+                viewModel.setSyncIntervalMinutes(minutes)
+                showSyncIntervalDialog = false
+            }
+        )
     }
 
     // Delete all data confirmation dialog
@@ -378,4 +402,62 @@ private fun SettingsSwitchItem(
             )
         }
     }
+}
+
+/**
+ * Dialog for selecting sync interval
+ */
+@Composable
+private fun SyncIntervalDialog(
+    currentInterval: Long,
+    onDismiss: () -> Unit,
+    onIntervalSelected: (Long) -> Unit
+) {
+    val intervals = listOf(1L, 2L, 3L, 5L, 10L, 15L, 30L)
+    var selectedInterval by remember { mutableStateOf(currentInterval) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Background Sync Interval") },
+        text = {
+            Column {
+                Text(
+                    "Choose how often the app syncs data in the background.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                intervals.forEach { interval ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedInterval = interval }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedInterval == interval,
+                            onClick = { selectedInterval = interval }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "$interval minute${if (interval != 1L) "s" else ""}",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onIntervalSelected(selectedInterval) }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

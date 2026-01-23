@@ -325,9 +325,8 @@ private fun BirthdatePickerDialog(
 ) {
     val datePickerState = rememberDatePickerState(
         initialSelectedDateMillis = initialDate?.let {
-            java.time.ZoneId.systemDefault().let { zoneId ->
-                it.atStartOfDay(zoneId).toInstant().toEpochMilli()
-            }
+            // Convert LocalDate to milliseconds at midnight UTC to match DatePicker's behavior
+            it.atStartOfDay(java.time.ZoneId.of("UTC")).toInstant().toEpochMilli()
         }
     )
     

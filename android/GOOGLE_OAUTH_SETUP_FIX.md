@@ -145,7 +145,7 @@ Result code `-1` (RESULT_OK) means success!
 **Cause:** OAuth client ID is incorrect or app package name doesn't match  
 **Fix:** 
 - Verify client ID in `Constants.kt`
-- Check package name is `com.chorequest` in `build.gradle.kts`
+- Check package name is `com.lostsierra.chorequest` in `build.gradle.kts`
 
 ### Issue 3: "App not verified" screen
 **Cause:** OAuth consent screen in testing mode  
@@ -180,7 +180,7 @@ If you can't configure OAuth right now, enable mock mode:
 In `AuthRepository.kt`, uncomment the mock authentication section:
 ```kotlin
 // TEMPORARY: Mock authentication for testing
-if (com.chorequest.utils.Constants.USE_MOCK_AUTH) {
+if (com.lostsierra.chorequest.utils.Constants.USE_MOCK_AUTH) {
     // ... mock code ...
 }
 ```

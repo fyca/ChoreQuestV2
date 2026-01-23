@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChoreQuest Feature Graphic Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 1024px;
+            height: 500px;
+            background: linear-gradient(135deg, #4A90E2 0%, #9B59B6 50%, #6BCF7C 100%);
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+
+        /* Decorative circles */
+        .circle {
+            position: absolute;
+            border-radius: 50%;
+            opacity: 0.2;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .circle1 {
+            width: 200px;
+            height: 200px;
+            background: #FFD93D;
+            top: -50px;
+            left: -50px;
+            animation-delay: 0s;
+        }
+
+        .circle2 {
+            width: 150px;
+            height: 150px;
+            background: #FF6B6B;
+            bottom: -30px;
+            right: 100px;
+            animation-delay: 2s;
+        }
+
+        .circle3 {
+            width: 100px;
+            height: 100px;
+            background: #FF69B4;
+            top: 150px;
+            right: -30px;
+            animation-delay: 4s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(180deg); }
+        }
+
+        /* Main content */
+        .content {
+            position: relative;
+            z-index: 10;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+            color: white;
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .app-icon {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, #4A90E2 0%, #9B59B6 60%);
+            border-radius: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+            padding: 8px;
+        }
+
+        .app-icon::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #4A90E2, #9B59B6);
+            opacity: 0.6;
+        }
+
+        .app-icon svg {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100%;
+        }
+
+        .app-title {
+            font-size: 72px;
+            font-weight: bold;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.3);
+            letter-spacing: -2px;
+        }
+
+        .tagline {
+            font-size: 32px;
+            font-weight: 300;
+            margin-bottom: 40px;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .features {
+            display: flex;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .feature-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 20px;
+            min-width: 150px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .feature-icon {
+            font-size: 48px;
+            margin-bottom: 5px;
+        }
+
+        .feature-text {
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .points-badge {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            background: #FFD93D;
+            color: #2C3E50;
+            padding: 15px 25px;
+            border-radius: 50px;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .privacy-badge {
+            position: absolute;
+            bottom: 20px;
+            left: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .instructions {
+            margin-top: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            max-width: 1024px;
+            color: #2C3E50;
+        }
+
+        .instructions h2 {
+            margin-bottom: 15px;
+            color: #4A90E2;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+        }
+
+        .instructions li {
+            margin-bottom: 10px;
+            line-height: 1.6;
+        }
+
+        .instructions code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <!-- Feature Graphic Canvas -->
+        <div class="container" id="featureGraphic">
+            <!-- Decorative elements -->
+            <div class="circle circle1"></div>
+            <div class="circle circle2"></div>
+            <div class="circle circle3"></div>
+
+            <!-- Points Badge -->
+            <div class="points-badge">
+                ⭐ 500 Points
+            </div>
+
+            <!-- Privacy Badge -->
+            <div class="privacy-badge">
+                🔒 Your Data Stays Private
+            </div>
+
+            <!-- Main Content -->
+            <div class="content">
+                <div class="logo-area">
+                    <div class="app-icon">
+                        <svg viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Background gradient -->
+                            <defs>
+                                <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
+                                    <stop offset="60%" style="stop-color:#9B59B6;stop-opacity:0.6" />
+                                </linearGradient>
+                                <linearGradient id="yellowAccent" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#FFD93D;stop-opacity:0.3" />
+                                    <stop offset="100%" style="stop-color:#FFD93D;stop-opacity:0.1" />
+                                </linearGradient>
+                            </defs>
+                            <!-- Background -->
+                            <rect width="108" height="108" fill="url(#bgGradient)" />
+                            <!-- Yellow accent -->
+                            <path d="M0,0 L108,54 L0,108 Z" fill="url(#yellowAccent)" />
+                            <!-- Shield/Badge shape (scaled to 0.7 and centered) -->
+                            <g transform="translate(16.2, 16.2) scale(0.7)">
+                                <!-- Shield/Badge shape -->
+                                <path d="M54,12 C40,12 28,18 28,28 L28,42 C28,52 40,58 54,70 C68,58 80,52 80,42 L80,28 C80,18 68,12 54,12 Z" fill="#FFFFFF" />
+                                <!-- Inner highlight -->
+                                <path d="M54,16 C42,16 32,20 32,28 L32,42 C32,50 42,54 54,64 C66,54 76,50 76,42 L76,28 C76,20 66,16 54,16 Z" fill="#E8F4FD" />
+                                <!-- Checkmark for completed chore -->
+                                <path d="M42,38 L48,44 L66,26 L64,24 L48,40 L44,36 L40,40 Z" fill="#27AE60" />
+                                <!-- Star decoration at top -->
+                                <path d="M54,20 L56.5,26 L62,26 L57.5,29 L59.5,35 L54,31 L48.5,35 L50.5,29 L46,26 L51.5,26 Z" fill="#FFD93D" />
+                            </g>
+                        </svg>
+                    </div>
+                    <div class="app-title">ChoreQuest</div>
+                </div>
+                <div class="tagline">Turn Chores Into Quests!</div>
+                
+                <div class="features">
+                    <div class="feature-item">
+                        <div class="feature-icon">🎯</div>
+                        <div class="feature-text">Assign Chores</div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">⭐</div>
+                        <div class="feature-text">Earn Points</div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">🎁</div>
+                        <div class="feature-text">Redeem Rewards</div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">🎉</div>
+                        <div class="feature-text">Celebrate</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="instructions">
+            <h2>How to Generate Your Feature Graphic</h2>
+            <ol>
+                <li>Open this HTML file in a modern web browser (Chrome, Firefox, Edge)</li>
+                <li>Press <code>F11</code> or right-click → Inspect → Toggle Device Toolbar to enter fullscreen</li>
+                <li>Use a screenshot tool to capture the graphic area (1024x500px):
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li><strong>Windows:</strong> Use Snipping Tool or Win+Shift+S</li>
+                        <li><strong>Mac:</strong> Use Cmd+Shift+4 or Screenshot app</li>
+                        <li><strong>Browser Extension:</strong> Use "Full Page Screen Capture" extensions</li>
+                    </ul>
+                </li>
+                <li>For best results, use browser DevTools:
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li>Right-click → Inspect</li>
+                        <li>Press <code>Ctrl+Shift+P</code> (Cmd+Shift+P on Mac)</li>
+                        <li>Type "screenshot" and select "Capture node screenshot"</li>
+                        <li>Select the <code>#featureGraphic</code> element</li>
+                    </ul>
+                </li>
+                <li>Save as PNG (24-bit RGB) with dimensions exactly 1024x500 pixels</li>
+                <li>Verify file size is under 15 MB</li>
+            </ol>
+            <p style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                <strong>Note:</strong> The graphic above matches Google Play Store requirements. You can customize colors, text, and icons by editing this HTML file.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Optional: Add any interactive elements or animations here
+        console.log('ChoreQuest Feature Graphic Generator');
+        console.log('Dimensions: 1024x500px');
+        console.log('Ready to screenshot!');
+    </script>
+</body>
+</html>

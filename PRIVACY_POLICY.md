@@ -207,7 +207,7 @@ If you believe we have collected information from a child under 13 without paren
 ### 8.1 Data Storage and Retention
 - **LostSierra Apps does not retain any data.** All data is stored exclusively in the primary parent's Google Drive account
 - Data remains in your Google Drive for as long as you choose to keep it
-- Activity logs are stored in your Google Drive and retained according to your preferences (default: up to 365 days, configurable by parents)
+- Activity logs are stored in your Google Drive and retained according to your preferences 
 
 ### 8.2 Account Deletion
 - Since we do not retain your data, account deletion is handled entirely through your Google Drive account

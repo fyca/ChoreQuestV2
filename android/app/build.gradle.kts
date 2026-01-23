@@ -19,11 +19,11 @@ val keystoreProperties = if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.chorequest"
+    namespace = "com.lostsierra.chorequest"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.chorequest"
+        applicationId = "com.lostsierra.chorequest"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

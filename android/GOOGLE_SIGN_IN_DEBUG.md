@@ -12,7 +12,7 @@ val scriptId = "156195149694-6ed18krslhe5eosrph00o1ire06ek3di.apps.googleusercon
 
 **After:**
 ```kotlin
-val scriptId = com.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_ID
+val scriptId = com.lostsierra.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_ID
 ```
 
 **Why this matters:** The Google OAuth client ID is used to request an ID token from Google, but the Apps Script deployment ID is needed to call your backend API.

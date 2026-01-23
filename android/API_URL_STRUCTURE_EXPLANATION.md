@@ -73,7 +73,7 @@ const val APPS_SCRIPT_BASE_URL = "https://script.google.com/macros/s/AKfycbyL0_R
 
 **Change AppModule.kt:**
 ```kotlin
-val baseUrl = com.chorequest.utils.Constants.APPS_SCRIPT_BASE_URL
+val baseUrl = com.lostsierra.chorequest.utils.Constants.APPS_SCRIPT_BASE_URL
 ```
 
 **Change ChoreQuestApi.kt (every endpoint):**

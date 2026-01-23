@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Resizer - 1024x500 for Play Store</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+
+        .upload-area {
+            border: 3px dashed #4A90E2;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 30px;
+        }
+
+        .upload-area:hover {
+            border-color: #9B59B6;
+            background: #f0f0f0;
+        }
+
+        .upload-area.dragover {
+            border-color: #6BCF7C;
+            background: #e8f5e9;
+        }
+
+        .upload-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .upload-hint {
+            font-size: 14px;
+            color: #666;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .preview-section {
+            display: none;
+            margin-top: 30px;
+        }
+
+        .preview-section.active {
+            display: block;
+        }
+
+        .preview-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .preview-box {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: #fafafa;
+        }
+
+        .preview-box h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .preview-image {
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            display: block;
+        }
+
+        .image-info {
+            margin-top: 15px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #1976d2;
+        }
+
+        .image-info strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #1565c0;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .btn-primary {
+            background: #4A90E2;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #357abd;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6BCF7C;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5ab86a;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(107, 207, 124, 0.4);
+        }
+
+        .btn-danger {
+            background: #FF6B6B;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #e55555;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+        }
+
+        .target-size {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .target-size h2 {
+            color: #856404;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .target-size p {
+            color: #856404;
+            font-size: 16px;
+        }
+
+        .error {
+            background: #f8d7da;
+            border: 2px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .error.active {
+            display: block;
+        }
+
+        .success {
+            background: #d4edda;
+            border: 2px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .success.active {
+            display: block;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4A90E2;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .preview-container {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖼️ Image Resizer</h1>
+        <p class="subtitle">Resize images to 1024x500 pixels for Google Play Store Feature Graphic</p>
+
+        <div class="target-size">
+            <h2>Target Size: 1024 × 500 pixels</h2>
+            <p>Aspect Ratio: 2.048:1 (Landscape)</p>
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📤</div>
+            <div class="upload-text">Click to upload or drag and drop</div>
+            <div class="upload-hint">Supports: JPG, PNG, GIF, WebP</div>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+
+        <div class="error" id="errorMessage"></div>
+        <div class="success" id="successMessage"></div>
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing image...</p>
+        </div>
+
+        <div class="preview-section" id="previewSection">
+            <div class="preview-container">
+                <div class="preview-box">
+                    <h3>📷 Original Image</h3>
+                    <canvas id="originalCanvas" class="preview-image"></canvas>
+                    <div class="image-info" id="originalInfo"></div>
+                </div>
+                <div class="preview-box">
+                    <h3>✅ Resized Image (1024×500)</h3>
+                    <canvas id="resizedCanvas" class="preview-image"></canvas>
+                    <div class="image-info" id="resizedInfo"></div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="btn btn-primary" id="downloadBtn">💾 Download Resized Image</button>
+                <button class="btn btn-secondary" id="copyBtn">📋 Copy to Clipboard</button>
+                <button class="btn btn-danger" id="resetBtn">🔄 Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const previewSection = document.getElementById('previewSection');
+        const originalCanvas = document.getElementById('originalCanvas');
+        const resizedCanvas = document.getElementById('resizedCanvas');
+        const originalInfo = document.getElementById('originalInfo');
+        const resizedInfo = document.getElementById('resizedInfo');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        const loading = document.getElementById('loading');
+
+        const TARGET_WIDTH = 1024;
+        const TARGET_HEIGHT = 500;
+
+        let originalImage = null;
+
+        // Click to upload
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            hideMessages();
+            
+            if (!file.type.startsWith('image/')) {
+                showError('Please select an image file (JPG, PNG, GIF, or WebP)');
+                return;
+            }
+
+            loading.classList.add('active');
+            previewSection.classList.remove('active');
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    originalImage = img;
+                    displayOriginal(img);
+                    resizeImage(img);
+                    loading.classList.remove('active');
+                    previewSection.classList.add('active');
+                };
+                img.onerror = () => {
+                    loading.classList.remove('active');
+                    showError('Failed to load image. Please try another file.');
+                };
+                img.src = e.target.result;
+            };
+            reader.onerror = () => {
+                loading.classList.remove('active');
+                showError('Failed to read file. Please try again.');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function displayOriginal(img) {
+            const ctx = originalCanvas.getContext('2d');
+            
+            // Calculate display size (max 500px width/height for preview)
+            const maxDisplaySize = 500;
+            let displayWidth = img.width;
+            let displayHeight = img.height;
+            
+            if (displayWidth > maxDisplaySize || displayHeight > maxDisplaySize) {
+                const ratio = Math.min(maxDisplaySize / displayWidth, maxDisplaySize / displayHeight);
+                displayWidth = img.width * ratio;
+                displayHeight = img.height * ratio;
+            }
+            
+            originalCanvas.width = displayWidth;
+            originalCanvas.height = displayHeight;
+            ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
+            
+            originalInfo.innerHTML = `
+                <strong>Original Dimensions:</strong>
+                ${img.width} × ${img.height} pixels<br>
+                <strong>File Size:</strong> ${formatFileSize(img.width * img.height * 4)} (estimated)
+            `;
+        }
+
+        function resizeImage(img) {
+            const ctx = resizedCanvas.getContext('2d');
+            
+            // Set canvas to target size
+            resizedCanvas.width = TARGET_WIDTH;
+            resizedCanvas.height = TARGET_HEIGHT;
+            
+            // Calculate scaling to fill the canvas while maintaining aspect ratio
+            const scale = Math.max(
+                TARGET_WIDTH / img.width,
+                TARGET_HEIGHT / img.height
+            );
+            
+            const scaledWidth = img.width * scale;
+            const scaledHeight = img.height * scale;
+            
+            // Center the image
+            const x = (TARGET_WIDTH - scaledWidth) / 2;
+            const y = (TARGET_HEIGHT - scaledHeight) / 2;
+            
+            // Fill background with white (or you can use a color)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, TARGET_WIDTH, TARGET_HEIGHT);
+            
+            // Draw the resized image
+            ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+            
+            resizedInfo.innerHTML = `
+                <strong>Resized Dimensions:</strong>
+                ${TARGET_WIDTH} × ${TARGET_HEIGHT} pixels<br>
+                <strong>Mode:</strong> ${scaledWidth > TARGET_WIDTH || scaledHeight > TARGET_HEIGHT ? 'Cropped to fit' : 'Fitted with padding'}
+            `;
+        }
+
+        function downloadImage() {
+            resizedCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `chorequest-feature-graphic-${TARGET_WIDTH}x${TARGET_HEIGHT}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showSuccess('Image downloaded successfully!');
+            }, 'image/png');
+        }
+
+        function copyToClipboard() {
+            resizedCanvas.toBlob((blob) => {
+                navigator.clipboard.write([
+                    new ClipboardItem({ 'image/png': blob })
+                ]).then(() => {
+                    showSuccess('Image copied to clipboard!');
+                }).catch(() => {
+                    showError('Failed to copy to clipboard. Please use the download button instead.');
+                });
+            }, 'image/png');
+        }
+
+        function reset() {
+            fileInput.value = '';
+            originalImage = null;
+            previewSection.classList.remove('active');
+            hideMessages();
+            
+            const ctx1 = originalCanvas.getContext('2d');
+            const ctx2 = resizedCanvas.getContext('2d');
+            ctx1.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
+            ctx2.clearRect(0, 0, resizedCanvas.width, resizedCanvas.height);
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('active');
+            successMessage.classList.remove('active');
+        }
+
+        function showSuccess(message) {
+            successMessage.textContent = message;
+            successMessage.classList.add('active');
+            errorMessage.classList.remove('active');
+        }
+
+        function hideMessages() {
+            errorMessage.classList.remove('active');
+            successMessage.classList.remove('active');
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        // Event listeners
+        downloadBtn.addEventListener('click', downloadImage);
+        copyBtn.addEventListener('click', copyToClipboard);
+        resetBtn.addEventListener('click', reset);
+    </script>
+</body>
+</html>

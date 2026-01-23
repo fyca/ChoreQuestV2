@@ -99,7 +99,7 @@ fun provideRetrofit(
     gson: Gson
 ): Retrofit {
     return Retrofit.Builder()
-        .baseUrl(com.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_URL)
+        .baseUrl(com.lostsierra.chorequest.utils.Constants.APPS_SCRIPT_WEB_APP_URL)
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create(gson))
         .build()

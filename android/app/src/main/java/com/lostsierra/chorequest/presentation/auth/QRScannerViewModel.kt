@@ -1,0 +1,153 @@
+package com.lostsierra.chorequest.presentation.auth
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.lostsierra.chorequest.data.repository.AuthRepository
+import com.lostsierra.chorequest.domain.models.QRCodePayload
+import com.lostsierra.chorequest.domain.models.User
+import com.lostsierra.chorequest.utils.QRCodeUtils
+import com.lostsierra.chorequest.utils.Result
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+/**
+ * ViewModel for QR code scanner
+ * Handles QR code validation and authentication
+ */
+@HiltViewModel
+class QRScannerViewModel @Inject constructor(
+    private val authRepository: AuthRepository,
+    private val syncRepository: com.lostsierra.chorequest.data.repository.SyncRepository,
+    private val syncManager: com.lostsierra.chorequest.workers.SyncManager
+) : ViewModel() {
+
+    private val _scannerState = MutableStateFlow<QRScannerState>(QRScannerState.Scanning)
+    val scannerState: StateFlow<QRScannerState> = _scannerState.asStateFlow()
+
+    private val _navigationEvent = MutableSharedFlow<QRNavigationEvent>()
+    val navigationEvent: SharedFlow<QRNavigationEvent> = _navigationEvent.asSharedFlow()
+
+    /**
+     * Process scanned QR code data
+     */
+    fun processQRCode(qrData: String) {
+        viewModelScope.launch {
+            _scannerState.value = QRScannerState.Processing
+
+            // Parse QR code payload
+            val payload = QRCodeUtils.parseQRCodeData(qrData)
+            
+            if (payload == null) {
+                _scannerState.value = QRScannerState.Error("Invalid QR code format")
+                return@launch
+            }
+
+            // Validate payload
+            if (!QRCodeUtils.validateQRCodePayload(payload)) {
+                _scannerState.value = QRScannerState.Error("QR code is invalid or expired")
+                return@launch
+            }
+
+            // Authenticate with QR code
+            authenticateWithQRCode(payload)
+        }
+    }
+
+    /**
+     * Authenticate user with QR code payload
+     */
+    private fun authenticateWithQRCode(payload: QRCodePayload) {
+        viewModelScope.launch {
+            // ownerEmail and folderId are now included in QR code payload
+            val ownerEmail = payload.ownerEmail
+            val folderId = payload.folderId
+            if (ownerEmail.isBlank() || folderId.isBlank()) {
+                _scannerState.value = QRScannerState.Error("QR code missing required data")
+                return@launch
+            }
+            
+            authRepository.authenticateWithQR(
+                familyId = payload.familyId,
+                userId = payload.userId,
+                token = payload.token,
+                tokenVersion = payload.version,
+                ownerEmail = ownerEmail,
+                folderId = folderId
+            ).collect { result ->
+                when (result) {
+                    is Result.Success -> {
+                        _scannerState.value = QRScannerState.Success(result.data)
+                        
+                        // Set last sync time to now since all data has been loaded during login
+                        viewModelScope.launch {
+                            syncRepository.updateLastSyncTime(System.currentTimeMillis())
+                        }
+                        
+                        // Schedule periodic background sync (every 15 minutes)
+                        // Safe to call even if already scheduled (uses KEEP policy)
+                        syncManager.scheduleSyncWork()
+                        
+                        // Navigate based on user role
+                        _navigationEvent.emit(
+                            if (result.data.role == com.lostsierra.chorequest.domain.models.UserRole.PARENT) {
+                                QRNavigationEvent.NavigateToParentDashboard
+                            } else {
+                                QRNavigationEvent.NavigateToChildDashboard
+                            }
+                        )
+                    }
+                    is Result.Error -> {
+                        _scannerState.value = QRScannerState.Error(result.message)
+                    }
+                    is Result.Loading -> {
+                        _scannerState.value = QRScannerState.Processing
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Reset scanner to retry
+     */
+    fun resetScanner() {
+        _scannerState.value = QRScannerState.Scanning
+    }
+    
+    /**
+     * Set error state
+     */
+    fun setError(message: String) {
+        _scannerState.value = QRScannerState.Error(message)
+    }
+
+    /**
+     * Navigate back to login
+     */
+    fun navigateBack() {
+        viewModelScope.launch {
+            _navigationEvent.emit(QRNavigationEvent.NavigateBack)
+        }
+    }
+}
+
+/**
+ * UI state for QR scanner
+ */
+sealed class QRScannerState {
+    object Scanning : QRScannerState()
+    object Processing : QRScannerState()
+    data class Success(val user: User) : QRScannerState()
+    data class Error(val message: String) : QRScannerState()
+}
+
+/**
+ * Navigation events for QR scanner
+ */
+sealed class QRNavigationEvent {
+    object NavigateToParentDashboard : QRNavigationEvent()
+    object NavigateToChildDashboard : QRNavigationEvent()
+    object NavigateBack : QRNavigationEvent()
+}

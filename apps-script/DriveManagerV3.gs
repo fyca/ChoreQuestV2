@@ -27,12 +27,27 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
     
     // CRITICAL: Get a valid access token (refreshes if expired)
     // This ensures tokens are always fresh, even if the Android app sends an expired token
-    let validAccessToken = getValidAccessToken(ownerEmail);
-    if (!validAccessToken) {
-      Logger.log('WARNING: getValidAccessToken returned null, falling back to provided accessToken');
+    // However, if a fresh access token was just provided (e.g., from login), use it directly
+    let validAccessToken = null;
+    
+    // First, try to use the provided access token if it exists (it might be fresh from login)
+    if (accessToken) {
+      Logger.log('Using provided access token (may be fresh from login)');
+      Logger.log('Access token length: ' + accessToken.length);
+      Logger.log('Access token preview: ' + accessToken.substring(0, 20) + '...');
       validAccessToken = accessToken;
+      
+      // Optionally verify it's still valid, but don't fail if verification fails
+      // The token might be fresh and valid
     } else {
-      Logger.log('Using refreshed/valid access token from getValidAccessToken');
+      // No access token provided, try to get/refresh one
+      Logger.log('No access token provided, attempting to get/refresh one');
+      validAccessToken = getValidAccessToken(ownerEmail);
+      if (!validAccessToken) {
+        Logger.log('WARNING: getValidAccessToken returned null - no access token available');
+      } else {
+        Logger.log('Using refreshed/valid access token from getValidAccessToken');
+      }
     }
     
     // Get current user for logging (with ME deployment, this will be the script owner)
@@ -66,7 +81,7 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
     // CRITICAL: With ME deployment, we MUST use access token for all Drive API calls
     const query = "name='" + FOLDER_NAME + "' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents";
     Logger.log('Searching for folder with query: ' + query);
-    Logger.log('Using access token: ' + (validAccessToken ? 'yes (REQUIRED for ME deployment)' : 'no (will fail with ME deployment)'));
+    Logger.log('Using access token: ' + (validAccessToken ? 'yes (REQUIRED for ME deployment, length: ' + validAccessToken.length + ')' : 'no (will fail with ME deployment)'));
     
     // With ME deployment, access token is REQUIRED
     if (!validAccessToken) {
@@ -78,6 +93,9 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
     if (validAccessToken) {
       // Use valid access token for Drive API call
       const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&spaces=drive&fields=files(id,name,owners)';
+      Logger.log('Drive API URL: ' + url);
+      Logger.log('Authorization header: Bearer ' + validAccessToken.substring(0, 20) + '...');
+      
       const options = {
         method: 'get',
         headers: {
@@ -85,9 +103,15 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
         },
         muteHttpExceptions: true
       };
+      
+      Logger.log('Making Drive API request...');
       const httpResponse = UrlFetchApp.fetch(url, options);
       const responseCode = httpResponse.getResponseCode();
       const responseText = httpResponse.getContentText();
+      
+      Logger.log('Drive API response code: ' + responseCode);
+      Logger.log('Drive API response length: ' + responseText.length);
+      Logger.log('Drive API response preview: ' + responseText.substring(0, 500));
       
       if (responseCode !== 200) {
         Logger.log('ERROR: Drive API call failed: ' + responseCode + ' - ' + responseText);
@@ -96,19 +120,67 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
         let errorMessage = 'Drive API call failed: ' + responseCode;
         try {
           const errorResponse = JSON.parse(responseText);
+          Logger.log('Error response parsed: ' + JSON.stringify(errorResponse));
+          
+          // Handle different error response formats
           if (errorResponse.error) {
-            errorMessage = 'Drive API error: ' + errorResponse.error;
+            if (typeof errorResponse.error === 'string') {
+              errorMessage = 'Drive API error: ' + errorResponse.error;
+            } else if (typeof errorResponse.error === 'object') {
+              // Error is an object with code, message, status, etc.
+              const errorObj = errorResponse.error;
+              const errorDetails = [];
+              
+              if (errorObj.message) {
+                errorDetails.push(errorObj.message);
+              }
+              if (errorObj.code) {
+                errorDetails.push('code: ' + errorObj.code);
+              }
+              if (errorObj.status) {
+                errorDetails.push('status: ' + errorObj.status);
+              }
+              if (errorObj.errors && Array.isArray(errorObj.errors)) {
+                errorObj.errors.forEach((err, idx) => {
+                  if (err.message) errorDetails.push('error[' + idx + ']: ' + err.message);
+                  if (err.domain) errorDetails.push('domain[' + idx + ']: ' + err.domain);
+                  if (err.reason) errorDetails.push('reason[' + idx + ']: ' + err.reason);
+                });
+              }
+              
+              if (errorDetails.length > 0) {
+                errorMessage = 'Drive API error: ' + errorDetails.join(', ');
+              } else {
+                errorMessage = 'Drive API error: ' + JSON.stringify(errorObj);
+              }
+            }
+            
             if (errorResponse.error_description) {
               errorMessage += ' - ' + errorResponse.error_description;
             }
+            
+            // Check for specific error codes
+            const errorCode = typeof errorResponse.error === 'object' ? errorResponse.error.code : errorResponse.error;
+            if (errorCode === 'invalid_grant' || errorCode === 401 || responseCode === 401) {
+              errorMessage = 'Drive access not authorized. The access token may be invalid, expired, or missing required scopes.';
+            }
+          } else if (errorResponse.message) {
+            errorMessage = 'Drive API error: ' + errorResponse.message;
+          } else {
+            // Fallback: use the raw response text
+            errorMessage = 'Drive API error (code ' + responseCode + '): ' + responseText.substring(0, 500);
           }
         } catch (e) {
+          Logger.log('Could not parse error response: ' + e.toString());
           // If response is HTML (like 401 errors), use the response code
           if (responseCode === 401) {
             errorMessage = 'Drive access not authorized. The access token may be invalid, expired, or missing required scopes.';
+          } else if (responseCode === 403) {
+            errorMessage = 'Drive access forbidden. The access token may not have required permissions.';
           }
         }
         
+        Logger.log('Throwing error: ' + errorMessage);
         throw new Error(errorMessage);
       }
       
@@ -207,16 +279,37 @@ function getChoreQuestFolderV3(ownerEmail, accessToken) {
     return newFolder.id;
   } catch (error) {
     Logger.log('ERROR in getChoreQuestFolderV3: ' + error.toString());
-    Logger.log('Error details: ' + JSON.stringify(error));
+    Logger.log('Error type: ' + typeof error);
+    Logger.log('Error message: ' + (error.message || 'no message'));
+    Logger.log('Error stack: ' + (error.stack || 'no stack'));
+    
+    // Try to extract error message properly
+    let errorMessage = 'Cannot access Drive';
+    if (error.message) {
+      errorMessage = error.message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    } else if (error.toString && error.toString() !== '[object Object]') {
+      errorMessage = error.toString();
+    } else {
+      // Try to stringify the error
+      try {
+        errorMessage = JSON.stringify(error);
+      } catch (e) {
+        errorMessage = 'Unknown error: ' + typeof error;
+      }
+    }
+    
+    Logger.log('Extracted error message: ' + errorMessage);
     
     // Check if it's an authorization error
-    const errorStr = error.toString().toLowerCase();
+    const errorStr = errorMessage.toLowerCase();
     if (errorStr.includes('unauthorized') || errorStr.includes('401') || errorStr.includes('permission') || errorStr.includes('access denied') || errorStr.includes('insufficient permission')) {
       Logger.log('Authorization error detected - user needs to authorize Drive access');
       throw new Error('Drive access not authorized. Please visit the web app URL in a browser to authorize Drive access: ' + ScriptApp.getService().getUrl());
     }
     
-    throw new Error('Cannot access Drive: ' + error.toString());
+    throw new Error(errorMessage);
   }
 }
 

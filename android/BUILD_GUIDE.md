@@ -43,7 +43,7 @@ Android Studio should automatically prompt you to sync Gradle. If not, click:
    ```bash
    keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
    ```
-7. Add the SHA-1 fingerprint and package name (`com.chorequest`) to your OAuth client
+7. Add the SHA-1 fingerprint and package name (`com.lostsierra.chorequest`) to your OAuth client
 
 #### B. Update Constants
 

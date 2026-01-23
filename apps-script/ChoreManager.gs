@@ -1223,19 +1223,25 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
   try {
     const logMsg = 'ensureRecurringChoreInstances: Starting';
     Logger.log(logMsg);
-    addDebugLog('INFO', logMsg);
+    if (typeof addDebugLog !== 'undefined') {
+      addDebugLog('INFO', logMsg);
+    }
     
     const templatesData = loadJsonFileV3(FILE_NAMES.RECURRING_CHORE_TEMPLATES, ownerEmail, folderId, accessToken);
     if (!templatesData || !templatesData.templates) {
       const msg = 'ensureRecurringChoreInstances: No templates found';
       Logger.log(msg);
-      addDebugLog('WARN', msg);
+      if (typeof addDebugLog !== 'undefined') {
+        addDebugLog('WARN', msg);
+      }
       return;
     }
     
     const templatesMsg = 'ensureRecurringChoreInstances: Found ' + templatesData.templates.length + ' templates';
     Logger.log(templatesMsg);
-    addDebugLog('INFO', templatesMsg);
+    if (typeof addDebugLog !== 'undefined') {
+      addDebugLog('INFO', templatesMsg);
+    }
     
     const usersData = loadJsonFileV3(FILE_NAMES.USERS, ownerEmail, folderId, accessToken);
     if (!usersData || !usersData.users) {
@@ -1248,7 +1254,9 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
     const choresData = loadJsonFileV3(FILE_NAMES.CHORES, ownerEmail, folderId, accessToken) || { chores: [] };
     const choresMsg = 'ensureRecurringChoreInstances: Found ' + (choresData.chores ? choresData.chores.length : 0) + ' chores';
     Logger.log(choresMsg);
-    addDebugLog('INFO', choresMsg);
+    if (typeof addDebugLog !== 'undefined') {
+      addDebugLog('INFO', choresMsg);
+    }
     
     let hasChanges = false;
     let templatesNeedSaving = false;
@@ -1271,12 +1279,16 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
       const allTemplateChores = choresData.chores.filter(c => c.templateId === template.id);
       const templateInfoMsg = 'Template ' + template.id + ' (' + template.title + '): Found ' + allTemplateChores.length + ' total instances';
       Logger.log(templateInfoMsg);
-      addDebugLog('INFO', templateInfoMsg, { templateId: template.id, templateTitle: template.title, instanceCount: allTemplateChores.length });
+      if (typeof addDebugLog !== 'undefined') {
+        addDebugLog('INFO', templateInfoMsg, { templateId: template.id, templateTitle: template.title, instanceCount: allTemplateChores.length });
+      }
       
       allTemplateChores.forEach(c => {
         const choreInfo = '  - Chore: id=' + c.id + ', dueDate=' + c.dueDate + ', cycleId=' + (c.cycleId || 'none') + ', status=' + c.status;
         Logger.log(choreInfo);
-        addDebugLog('DEBUG', choreInfo, { choreId: c.id, dueDate: c.dueDate, cycleId: c.cycleId, status: c.status });
+        if (typeof addDebugLog !== 'undefined') {
+          addDebugLog('DEBUG', choreInfo, { choreId: c.id, dueDate: c.dueDate, cycleId: c.cycleId, status: c.status });
+        }
       });
       
       const expiredInstances = choresData.chores.filter(c => {
@@ -1286,14 +1298,18 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
         if (!c.dueDate) {
           const msg = 'Chore ' + c.id + ' has no dueDate, skipping';
           Logger.log(msg);
-          addDebugLog('DEBUG', msg, { choreId: c.id });
+          if (typeof addDebugLog !== 'undefined') {
+            addDebugLog('DEBUG', msg, { choreId: c.id });
+          }
           return false;
         }
         // Skip completed/verified chores
         if (c.status === 'completed' || c.status === 'verified') {
           const msg = 'Chore ' + c.id + ' is completed/verified, skipping';
           Logger.log(msg);
-          addDebugLog('DEBUG', msg, { choreId: c.id, status: c.status });
+          if (typeof addDebugLog !== 'undefined') {
+            addDebugLog('DEBUG', msg, { choreId: c.id, status: c.status });
+          }
           return false;
         }
         
@@ -1312,7 +1328,9 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
         if (isNaN(choreDueDate.getTime())) {
           const msg = 'Chore ' + c.id + ' has invalid dueDate: ' + c.dueDate;
           Logger.log(msg);
-          addDebugLog('WARN', msg, { choreId: c.id, dueDate: c.dueDate });
+          if (typeof addDebugLog !== 'undefined') {
+            addDebugLog('WARN', msg, { choreId: c.id, dueDate: c.dueDate });
+          }
           return false;
         }
         
@@ -1330,15 +1348,17 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
         if (!isExpired) {
           const msg = 'Chore ' + c.id + ' is NOT expired (dueDate >= today), keeping it. dueDate=' + c.dueDate + ' (' + choreDueDate.toISOString() + '), today=' + today.toISOString() + ', choreTime=' + choreTime + ', todayTime=' + todayTime;
           Logger.log(msg);
-          addDebugLog('INFO', msg, { 
-            choreId: c.id, 
-            dueDate: c.dueDate, 
-            choreDueDateISO: choreDueDate.toISOString(), 
-            todayISO: today.toISOString(),
-            choreTime: choreTime,
-            todayTime: todayTime,
-            timeDiff: todayTime - choreTime
-          });
+          if (typeof addDebugLog !== 'undefined') {
+            addDebugLog('INFO', msg, { 
+              choreId: c.id, 
+              dueDate: c.dueDate, 
+              choreDueDateISO: choreDueDate.toISOString(), 
+              todayISO: today.toISOString(),
+              choreTime: choreTime,
+              todayTime: todayTime,
+              timeDiff: todayTime - choreTime
+            });
+          }
           return false; // NEVER remove non-expired chores
         }
         
@@ -1351,14 +1371,17 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
         if (isCurrentCycle && !isExpired) {
           const msg = 'Chore ' + c.id + ' is for current cycle and not expired, keeping it';
           Logger.log(msg);
-          addDebugLog('DEBUG', msg, { choreId: c.id, cycleId: c.cycleId, currentCycleId: currentCycleId });
+          if (typeof addDebugLog !== 'undefined') {
+            addDebugLog('DEBUG', msg, { choreId: c.id, cycleId: c.cycleId, currentCycleId: currentCycleId });
+          }
           return false;
         }
         
         // Log for debugging - only reached if chore is actually expired
         const checkMsg = 'Chore ' + c.id + ' IS expired: dueDate=' + c.dueDate + ' (' + choreDueDate.toISOString() + '), today=' + today.toISOString() + ', cycleId=' + (c.cycleId || 'none') + ', currentCycleId=' + currentCycleId;
         Logger.log(checkMsg);
-        addDebugLog('INFO', checkMsg, { 
+        if (typeof addDebugLog !== 'undefined') {
+          addDebugLog('INFO', checkMsg, { 
           choreId: c.id, 
           dueDate: c.dueDate, 
           choreDueDateISO: choreDueDate.toISOString(), 
@@ -1368,14 +1391,17 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
           currentCycleId: currentCycleId,
           choreTime: choreTime,
           todayTime: todayTime
-        });
+          });
+        }
         
         return true; // Only return true if actually expired
       });
       
       const expiredMsg = 'Template ' + template.id + ' (' + template.title + '): Found ' + expiredInstances.length + ' expired instances to remove';
       Logger.log(expiredMsg);
-      addDebugLog('INFO', expiredMsg, { templateId: template.id, expiredCount: expiredInstances.length });
+      if (typeof addDebugLog !== 'undefined') {
+        addDebugLog('INFO', expiredMsg, { templateId: template.id, expiredCount: expiredInstances.length });
+      }
       
       // Track if we removed an expired instance for the current cycle
       let removedCurrentCycleInstance = false;
@@ -1396,12 +1422,14 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
         if (isCurrentCycle && !isActuallyExpired) {
           const skipMsg = 'Skipping removal of chore ' + expiredInstance.id + ' - it is for current cycle and not expired';
           Logger.log(skipMsg);
-          addDebugLog('WARN', skipMsg, { 
+          if (typeof addDebugLog !== 'undefined') {
+            addDebugLog('WARN', skipMsg, { 
             choreId: expiredInstance.id, 
             dueDate: expiredInstance.dueDate, 
             cycleId: expiredInstance.cycleId,
             currentCycleId: currentCycleId
-          });
+            });
+          }
           continue; // Skip this one
         }
         
@@ -1564,25 +1592,35 @@ function ensureRecurringChoreInstances(ownerEmail, folderId, accessToken) {
     if (hasChanges) {
       const saveMsg = 'ensureRecurringChoreInstances: Saving changes to chores file';
       Logger.log(saveMsg);
-      addDebugLog('INFO', saveMsg);
+      if (typeof addDebugLog !== 'undefined') {
+        addDebugLog('INFO', saveMsg);
+      }
       saveJsonFileV3(FILE_NAMES.CHORES, choresData, ownerEmail, folderId, accessToken);
       const savedMsg = 'ensureRecurringChoreInstances: Changes saved successfully';
       Logger.log(savedMsg);
-      addDebugLog('INFO', savedMsg);
+      if (typeof addDebugLog !== 'undefined') {
+        addDebugLog('INFO', savedMsg);
+      }
     } else {
       const noChangesMsg = 'ensureRecurringChoreInstances: No changes to save';
       Logger.log(noChangesMsg);
-      addDebugLog('INFO', noChangesMsg);
+      if (typeof addDebugLog !== 'undefined') {
+        addDebugLog('INFO', noChangesMsg);
+      }
     }
     
     const completedMsg = 'ensureRecurringChoreInstances: Completed';
     Logger.log(completedMsg);
-    addDebugLog('INFO', completedMsg);
+    if (typeof addDebugLog !== 'undefined') {
+      addDebugLog('INFO', completedMsg);
+    }
     
   } catch (error) {
     const errorMsg = 'Error in ensureRecurringChoreInstances: ' + error.toString();
     Logger.log(errorMsg);
     Logger.log('Error stack: ' + (error.stack || 'no stack'));
-    addDebugLog('ERROR', errorMsg, { error: error.toString(), stack: error.stack || 'no stack' });
+    if (typeof addDebugLog !== 'undefined') {
+      addDebugLog('ERROR', errorMsg, { error: error.toString(), stack: error.stack || 'no stack' });
+    }
   }
 }

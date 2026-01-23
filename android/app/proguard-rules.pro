@@ -6,8 +6,8 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Keep data classes
--keep class com.chorequest.data.models.** { *; }
--keep class com.chorequest.domain.models.** { *; }
+-keep class com.lostsierra.chorequest.data.models.** { *; }
+-keep class com.lostsierra.chorequest.domain.models.** { *; }
 
 # Retrofit
 -keepattributes Signature, InnerClasses, EnclosingMethod

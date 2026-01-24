@@ -27,6 +27,8 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_ROCK_PAPER_SCISSORS_DIFFICULTY = "rock_paper_scissors_difficulty"
         private const val KEY_JIGSAW_PUZZLE_BEST_TIME = "jigsaw_puzzle_best_time"
         private const val KEY_JIGSAW_PUZZLE_DIFFICULTY = "jigsaw_puzzle_difficulty"
+        private const val KEY_JIGSAW_PUZZLE_SAVED_STATE = "jigsaw_puzzle_saved_state"
+        private const val KEY_JIGSAW_PUZZLE_HAS_SAVED_GAME = "jigsaw_puzzle_has_saved_game"
         private const val KEY_SOUND_ENABLED = "sound_enabled"
         private const val KEY_TIC_TAC_TOE_FLIP_MODE = "tic_tac_toe_flip_mode" // "single" or "entire"
         private const val KEY_TIC_TAC_TOE_WIN_CONDITION = "tic_tac_toe_win_condition" // 3, 4, or 5
@@ -129,6 +131,35 @@ class GamePreferencesManager @Inject constructor(
 
     fun saveJigsawPuzzleDifficulty(difficulty: String) {
         sharedPreferences.edit().putString(KEY_JIGSAW_PUZZLE_DIFFICULTY, difficulty).apply()
+    }
+
+    // Jigsaw Puzzle Saved Game State
+    fun hasSavedJigsawPuzzle(): Boolean {
+        return sharedPreferences.getBoolean(KEY_JIGSAW_PUZZLE_HAS_SAVED_GAME, false)
+    }
+
+    fun saveJigsawPuzzleState(savedStateJson: String) {
+        android.util.Log.d("GamePreferencesManager", "saveJigsawPuzzleState() called - state length: ${savedStateJson.length}")
+        sharedPreferences.edit()
+            .putString(KEY_JIGSAW_PUZZLE_SAVED_STATE, savedStateJson)
+            .putBoolean(KEY_JIGSAW_PUZZLE_HAS_SAVED_GAME, true)
+            .apply()
+        android.util.Log.d("GamePreferencesManager", "saveJigsawPuzzleState() completed - hasSavedGame: ${hasSavedJigsawPuzzle()}")
+    }
+
+    fun getJigsawPuzzleSavedState(): String? {
+        return if (hasSavedJigsawPuzzle()) {
+            sharedPreferences.getString(KEY_JIGSAW_PUZZLE_SAVED_STATE, null)
+        } else {
+            null
+        }
+    }
+
+    fun clearJigsawPuzzleSavedState() {
+        sharedPreferences.edit()
+            .remove(KEY_JIGSAW_PUZZLE_SAVED_STATE)
+            .putBoolean(KEY_JIGSAW_PUZZLE_HAS_SAVED_GAME, false)
+            .apply()
     }
 
     // Sound Effects

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -28,10 +29,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import android.util.Log
 import com.lostsierra.chorequest.presentation.components.ChoreQuestTopAppBar
 
@@ -43,12 +47,41 @@ fun JigsawPuzzleScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    
+    // Save game state when app goes to background
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            Log.d("JigsawPuzzle", "Lifecycle event: $event")
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                Log.d("JigsawPuzzle", "ON_PAUSE detected - saving game state")
+                viewModel.saveGameStateOnPause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            Log.d("JigsawPuzzle", "DisposableEffect onDispose - saving game state")
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            // Also save when composable is disposed (e.g., navigation away)
+            viewModel.saveGameStateOnPause()
+        }
+    }
     
     LaunchedEffect(Unit) {
-        // Initialize with first available image if none selected
-        val availableImages = JigsawPuzzleViewModel.discoverPuzzleImages(context)
-        if (uiState.selectedImageResId == null && availableImages.isNotEmpty()) {
-            viewModel.selectImage(availableImages[0], context)
+        // Check for saved game first - check preferences directly to ensure we catch it even if uiState hasn't updated yet
+        val hasSavedGame = context.getSharedPreferences("chorequest_games", android.content.Context.MODE_PRIVATE)
+            .getBoolean("jigsaw_puzzle_has_saved_game", false)
+        
+        if (hasSavedGame && uiState.pieces.isEmpty()) {
+            // Auto-resume saved game
+            Log.d("JigsawPuzzle", "Auto-resuming saved game")
+            viewModel.loadSavedGame(context)
+        } else if (uiState.selectedImageResId == null && !hasSavedGame && uiState.pieces.isEmpty()) {
+            // Initialize with first available image if none selected and no saved game
+            val availableImages = JigsawPuzzleViewModel.discoverPuzzleImages(context)
+            if (availableImages.isNotEmpty()) {
+                viewModel.selectImage(availableImages[0], context)
+            }
         }
     }
     
@@ -56,7 +89,12 @@ fun JigsawPuzzleScreen(
         topBar = {
             ChoreQuestTopAppBar(
                 title = "🧩 Jigsaw Puzzle",
-                onNavigateBack = onNavigateBack,
+                onNavigateBack = {
+                    // Save game state before navigating back
+                    Log.d("JigsawPuzzle", "Back button pressed - saving game state")
+                    viewModel.saveGameStateOnPause()
+                    onNavigateBack()
+                },
                 actions = {
                     IconButton(onClick = { viewModel.showImageSelection() }) {
                         Icon(Icons.Default.Image, contentDescription = "Select Image")
@@ -81,7 +119,9 @@ fun JigsawPuzzleScreen(
                 moves = uiState.moves,
                 timeElapsed = uiState.timeElapsed,
                 bestTime = uiState.bestTime,
-                onNewGame = { viewModel.startNewGame(context) }
+                hasSavedGame = false,  // Don't show resume button since we auto-resume
+                onNewGame = { viewModel.startNewGame(context) },
+                onResumeGame = { }  // Not needed since we auto-resume
             )
             
             // Puzzle Grid
@@ -158,7 +198,9 @@ private fun StatsCard(
     moves: Int,
     timeElapsed: Int,
     bestTime: Int?,
-    onNewGame: () -> Unit
+    hasSavedGame: Boolean,
+    onNewGame: () -> Unit,
+    onResumeGame: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -166,24 +208,44 @@ private fun StatsCard(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         )
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(16.dp)
         ) {
-            Column {
-                Text("Moves: $moves", style = MaterialTheme.typography.bodyMedium)
-                Text("Time: ${formatTime(timeElapsed)}", style = MaterialTheme.typography.bodyMedium)
-                if (bestTime != null) {
-                    Text("Best: ${formatTime(bestTime)}", style = MaterialTheme.typography.bodySmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Moves: $moves", style = MaterialTheme.typography.bodyMedium)
+                    Text("Time: ${formatTime(timeElapsed)}", style = MaterialTheme.typography.bodyMedium)
+                    if (bestTime != null) {
+                        Text("Best: ${formatTime(bestTime)}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Button(onClick = onNewGame) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("New Puzzle")
                 }
             }
-            Button(onClick = onNewGame) {
-                Icon(Icons.Default.Refresh, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("New Puzzle")
+            
+            // Show resume button if there's a saved game and no current game in progress
+            if (hasSavedGame && moves == 0 && timeElapsed == 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = onResumeGame,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Resume Saved Game")
+                }
             }
         }
     }

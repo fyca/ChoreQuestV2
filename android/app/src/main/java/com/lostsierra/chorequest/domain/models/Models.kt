@@ -73,7 +73,8 @@ data class UserSettings(
 
 data class UserStats(
     val totalChoresCompleted: Int,
-    val currentStreak: Int
+    val currentStreak: Int,
+    val lastLoginDate: String? = null // ISO 8601 date string (YYYY-MM-DD), null if never logged in
 )
 
 // Chore Model

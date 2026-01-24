@@ -237,7 +237,8 @@ function createFamilyMember(data) {
       },
       stats: {
         totalChoresCompleted: 0,
-        currentStreak: 0
+        currentStreak: 0,
+        lastLoginDate: null
       },
       birthdate: birthdate || null // ISO 8601 date string (YYYY-MM-DD), only for children
     };

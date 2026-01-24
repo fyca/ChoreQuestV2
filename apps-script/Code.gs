@@ -533,7 +533,8 @@ function initializeFamilyData(userEmail, userName, userPicture, accessToken) {
     },
     stats: {
       totalChoresCompleted: 0,
-      currentStreak: 0
+      currentStreak: 0,
+      lastLoginDate: null
     }
   };
   

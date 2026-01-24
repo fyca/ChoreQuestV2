@@ -23,6 +23,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -208,6 +210,160 @@ class UserRepository @Inject constructor(
         }
     }
 
+
+    /**
+     * Update login streak when app opens in foreground
+     * Compares today's date with lastLoginDate to determine if streak should increment or reset
+     * Uses direct Drive API first, falls back to local cache update if Drive API fails
+     */
+    suspend fun updateLoginStreak(userId: String) {
+        try {
+            val session = sessionManager.loadSession()
+            if (session == null) {
+                Log.d(TAG, "No session found, skipping streak update")
+                return
+            }
+            
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            if (accessToken != null) {
+                try {
+                    Log.d(TAG, "Using direct Drive API to update login streak")
+                    val folderId = session.driveWorkbookLink
+                    
+                    // Read current users from Drive
+                    val usersData = readUsersFromDrive(accessToken, folderId)
+                    
+                    if (usersData != null) {
+                        val user = usersData.users.find { it.id == userId }
+                        if (user != null) {
+                            val today = LocalDate.now()
+                            val lastLoginDate = user.stats.lastLoginDate?.let {
+                                try {
+                                    LocalDate.parse(it)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Error parsing lastLoginDate: $it", e)
+                                    null
+                                }
+                            }
+                            
+                            val newStreak: Int
+                            val newLastLoginDate: String = today.toString()
+                            
+                            if (lastLoginDate == null) {
+                                // First time logging in, start streak at 1
+                                newStreak = 1
+                                Log.d(TAG, "First login for user ${user.name}, starting streak at 1")
+                            } else {
+                                val daysDiff = java.time.temporal.ChronoUnit.DAYS.between(lastLoginDate, today)
+                                
+                                when {
+                                    daysDiff == 0L -> {
+                                        // Already logged in today, no change
+                                        Log.d(TAG, "User ${user.name} already logged in today, no streak change")
+                                        return // Don't update if already logged in today
+                                    }
+                                    daysDiff == 1L -> {
+                                        // Consecutive day - increment streak
+                                        newStreak = user.stats.currentStreak + 1
+                                        Log.d(TAG, "Consecutive login for user ${user.name}, incrementing streak: ${user.stats.currentStreak} -> $newStreak")
+                                    }
+                                    else -> {
+                                        // Gap in login - reset streak to 1 (today's login)
+                                        newStreak = 1
+                                        Log.d(TAG, "Login gap detected for user ${user.name} (${daysDiff} days), resetting streak to 1")
+                                    }
+                                }
+                            }
+                            
+                            // Update user with new streak and last login date
+                            val updatedUser = user.copy(
+                                stats = user.stats.copy(
+                                    currentStreak = newStreak,
+                                    lastLoginDate = newLastLoginDate
+                                )
+                            )
+                            
+                            // Update users array
+                            val updatedUsers = usersData.users.map {
+                                if (it.id == userId) updatedUser else it
+                            }
+                            val updatedUsersData = usersData.copy(users = updatedUsers)
+                            
+                            // Save to Drive
+                            val usersWritten = writeUsersToDrive(accessToken, folderId, updatedUsersData)
+                            if (usersWritten) {
+                                // Also update family.json
+                                val familyData = readFamilyFromDrive(accessToken, folderId)
+                                if (familyData != null) {
+                                    val updatedMembers = familyData.members.map { member ->
+                                        if (member.id == userId) updatedUser else member
+                                    }
+                                    val updatedFamilyData = familyData.copy(members = updatedMembers)
+                                    writeFamilyToDrive(accessToken, folderId, updatedFamilyData)
+                                }
+                                
+                                // Update local cache
+                                userDao.updateUser(updatedUser.toEntity())
+                                Log.d(TAG, "Successfully updated login streak via Drive API for user ${user.name}")
+                                return // Success, exit early
+                            } else {
+                                Log.w(TAG, "Failed to write updated streak to Drive, falling back to local cache update")
+                            }
+                        } else {
+                            Log.w(TAG, "User not found in Drive data, falling back to local cache update")
+                        }
+                    } else {
+                        Log.w(TAG, "Could not read users data from Drive, falling back to local cache update")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API for streak update, falling back to local cache", e)
+                }
+            } else {
+                Log.d(TAG, "No access token available, falling back to local cache update")
+            }
+            
+            // Fallback: Update local cache only (Drive sync will eventually sync the correct data)
+            // This ensures the UI shows updated streak even if Drive API fails
+            try {
+                val localUser = userDao.getUserById(userId)?.toDomain()
+                if (localUser != null) {
+                    val today = LocalDate.now()
+                    val lastLoginDate = localUser.stats.lastLoginDate?.let {
+                        try {
+                            LocalDate.parse(it)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    
+                    // Only update if we haven't already logged in today
+                    if (lastLoginDate == null || java.time.temporal.ChronoUnit.DAYS.between(lastLoginDate, today) != 0L) {
+                        val newStreak = when {
+                            lastLoginDate == null -> 1
+                            java.time.temporal.ChronoUnit.DAYS.between(lastLoginDate, today) == 1L -> localUser.stats.currentStreak + 1
+                            else -> 1
+                        }
+                        
+                        val updatedUser = localUser.copy(
+                            stats = localUser.stats.copy(
+                                currentStreak = newStreak,
+                                lastLoginDate = today.toString()
+                            )
+                        )
+                        
+                        userDao.updateUser(updatedUser.toEntity())
+                        Log.d(TAG, "Updated login streak in local cache only (Drive API unavailable)")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating streak in local cache", e)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating login streak", e)
+        }
+    }
+
     /**
      * Get user by ID from local database
      */
@@ -292,7 +448,8 @@ class UserRepository @Inject constructor(
                                 ),
                                 stats = UserStats(
                                     totalChoresCompleted = 0,
-                                    currentStreak = 0
+                                    currentStreak = 0,
+                                    lastLoginDate = null
                                 ),
                                 birthdate = birthdate
                             )

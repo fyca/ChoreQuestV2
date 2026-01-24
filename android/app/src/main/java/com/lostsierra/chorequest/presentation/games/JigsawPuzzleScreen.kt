@@ -5,6 +5,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -43,8 +46,9 @@ fun JigsawPuzzleScreen(
     
     LaunchedEffect(Unit) {
         // Initialize with first available image if none selected
-        if (uiState.selectedImageResId == null && JigsawPuzzleViewModel.AVAILABLE_PUZZLE_IMAGES.isNotEmpty()) {
-            viewModel.selectImage(JigsawPuzzleViewModel.AVAILABLE_PUZZLE_IMAGES[0], context)
+        val availableImages = JigsawPuzzleViewModel.discoverPuzzleImages(context)
+        if (uiState.selectedImageResId == null && availableImages.isNotEmpty()) {
+            viewModel.selectImage(availableImages[0], context)
         }
     }
     
@@ -113,7 +117,7 @@ fun JigsawPuzzleScreen(
     // Image Selection Dialog
     if (uiState.showImageSelection) {
         ImageSelectionDialog(
-            availableImages = JigsawPuzzleViewModel.AVAILABLE_PUZZLE_IMAGES,
+            availableImages = JigsawPuzzleViewModel.discoverPuzzleImages(context),
             onImageSelected = { imageResId ->
                 viewModel.selectImage(imageResId, context)
             },
@@ -205,7 +209,9 @@ private fun PuzzleGrid(
     var initialDragPosition by remember { mutableStateOf<Offset?>(null) }
     
     // Create a map for quick piece lookup by ID
-    val piecesById = remember(pieces) { pieces.associateBy { it.id } }
+    // Use a callback to always get fresh pieces, not a remembered value
+    val getPiecesById = { pieces.associateBy { it.id } }
+    val piecesById = getPiecesById()
     
     Column(
         modifier = Modifier
@@ -249,7 +255,7 @@ private fun PuzzleGrid(
                                 piecePositions = piecePositions,
                                 piecesById = piecesById,
                                 getPiecePositions = { piecePositions },
-                                getPiecesById = { piecesById },
+                                getPiecesById = getPiecesById,
                                 initialDragPosition = initialDragPosition,
                                 onPositioned = { rect ->
                                     piecePositions = piecePositions + (piece.id to rect)
@@ -276,20 +282,15 @@ private fun PuzzleGrid(
                                 onDragOverPiece = { targetPieceId ->
                                     // Update target piece ID - this is only called for the piece being dragged
                                     Log.d("JigsawPuzzle", "onDragOverPiece called: draggedPieceId=$draggedPieceId, piece.id=${piece.id}, targetPieceId=$targetPieceId")
-                                    if (targetPieceId != null) {
-                                        val targetPiece = piecesById[targetPieceId]
-                                        Log.d("JigsawPuzzle", "Target piece found: $targetPiece, isPlaced=${targetPiece?.isPlaced}, draggedPieceId=$draggedPieceId")
-                                        // Only set target if piece exists, is not placed, and is not the dragged piece
-                                        if (targetPiece != null && !targetPiece.isPlaced && targetPieceId != draggedPieceId) {
-                                            Log.d("JigsawPuzzle", "Setting draggedOverPieceId to $targetPieceId")
-                                            draggedOverPieceId = targetPieceId
-                                        } else {
-                                            Log.d("JigsawPuzzle", "NOT setting draggedOverPieceId - conditions not met")
-                                        }
-                                    } else {
+                                    // Simply set the target ID - let ViewModel validate with fresh state
+                                    // Don't check isPlaced here as state might be stale during drag
+                                    if (targetPieceId != null && targetPieceId != draggedPieceId) {
+                                        Log.d("JigsawPuzzle", "Setting draggedOverPieceId to $targetPieceId")
+                                        draggedOverPieceId = targetPieceId
+                                    } else if (targetPieceId == null) {
+                                        // Keep last known target - don't clear on null
                                         Log.d("JigsawPuzzle", "targetPieceId is null, keeping last known target")
                                     }
-                                    // Don't clear if null - keep last known target for swap
                                 },
                                 onDragEnd = {
                                     // Only handle drag end for the piece being dragged
@@ -307,7 +308,9 @@ private fun PuzzleGrid(
                                         dragOffset = Offset.Zero
                                         initialDragPosition = null
                                         
-                                        // Perform swap if we have both pieces
+                                        // Always attempt swap - let ViewModel validate with fresh state
+                                        // The ViewModel's swapPieces method will check if pieces are placed
+                                        // using the current state, which is the source of truth
                                         if (draggedId != null && targetId != null && draggedId != targetId) {
                                             Log.d("JigsawPuzzle", "Calling onPieceDrag with draggedId=$draggedId, targetId=$targetId")
                                             onPieceDrag(draggedId, targetId, 0)
@@ -518,19 +521,25 @@ private fun ImageSelectionDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select Puzzle Image") },
         text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                availableImages.forEach { imageResId ->
+                items(availableImages.size) { index ->
+                    val imageResId = availableImages[index]
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(120.dp)
+                            .aspectRatio(9f / 16f) // 9:16 aspect ratio (portrait)
                             .clickable { onImageSelected(imageResId) },
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
+                        ),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Image(
                             painter = painterResource(id = imageResId),
@@ -557,42 +566,60 @@ private fun PieceCountDialog(
     onConfirm: (Int, Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var rows by remember { mutableStateOf(currentRows.toString()) }
-    var cols by remember { mutableStateOf(currentCols.toString()) }
+    // Calculate current piece count
+    val currentPieceCount = currentRows * currentCols
+    
+    // Difficulty options: (name, rows, cols, total pieces)
+    val difficultyOptions = listOf(
+        "Easy" to (4 to 4),      // 16 pieces
+        "Medium" to (6 to 6),    // 36 pieces
+        "Hard" to (12 to 6),     // 72 pieces
+        "Super Hard" to (8 to 11) // 88 pieces
+    )
     
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Set Piece Count") },
+        title = { Text("Select Difficulty") },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                OutlinedTextField(
-                    value = rows,
-                    onValueChange = { rows = it },
-                    label = { Text("Rows (2-10)") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = cols,
-                    onValueChange = { cols = it },
-                    label = { Text("Columns (2-10)") },
-                    singleLine = true
-                )
+                difficultyOptions.forEach { (name, rowsCols) ->
+                    val (rows, cols) = rowsCols
+                    val pieceCount = rows * cols
+                    val isSelected = currentRows == rows && currentCols == cols
+                    
+                    Button(
+                        onClick = { onConfirm(rows, cols) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = name,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                            Text(
+                                text = "$pieceCount pieces ($rows×$cols)",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    val r = rows.toIntOrNull()?.coerceIn(2, 10) ?: currentRows
-                    val c = cols.toIntOrNull()?.coerceIn(2, 10) ?: currentCols
-                    onConfirm(r, c)
-                }
-            ) {
-                Text("OK")
-            }
-        },
-        dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }

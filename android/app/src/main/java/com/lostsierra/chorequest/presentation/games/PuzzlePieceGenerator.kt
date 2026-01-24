@@ -24,8 +24,24 @@ object PuzzlePieceGenerator {
         val originalBitmap = BitmapFactory.decodeResource(context.resources, imageResId, options)
             ?: return emptyList()
         
-        val pieceWidth = originalBitmap.width / cols
-        val pieceHeight = originalBitmap.height / rows
+        // Calculate square piece size based on the smaller dimension to ensure pieces fit
+        // This ensures all pieces are square regardless of image aspect ratio
+        val imageWidth = originalBitmap.width
+        val imageHeight = originalBitmap.height
+        
+        // Calculate piece size to fit the image in a square grid
+        val pieceSize = minOf(imageWidth / cols, imageHeight / rows)
+        
+        // Calculate the actual grid dimensions that will fit
+        val actualGridWidth = pieceSize * cols
+        val actualGridHeight = pieceSize * rows
+        
+        // Center the crop region
+        val cropX = (imageWidth - actualGridWidth) / 2
+        val cropY = (imageHeight - actualGridHeight) / 2
+        
+        val pieceWidth = pieceSize
+        val pieceHeight = pieceSize
         
         val pieces = mutableListOf<PuzzlePiece>()
         
@@ -38,7 +54,9 @@ object PuzzlePieceGenerator {
                     rows = rows,
                     cols = cols,
                     pieceWidth = pieceWidth,
-                    pieceHeight = pieceHeight
+                    pieceHeight = pieceHeight,
+                    cropX = cropX,
+                    cropY = cropY
                 )
                 
                 pieces.add(
@@ -59,7 +77,7 @@ object PuzzlePieceGenerator {
     }
     
     /**
-     * Creates a simple rectangular puzzle piece (no tabs/blanks)
+     * Creates a simple square puzzle piece (no tabs/blanks)
      */
     private fun createPuzzlePiece(
         originalBitmap: Bitmap,
@@ -68,7 +86,9 @@ object PuzzlePieceGenerator {
         rows: Int,
         cols: Int,
         pieceWidth: Int,
-        pieceHeight: Int
+        pieceHeight: Int,
+        cropX: Int,
+        cropY: Int
     ): Bitmap {
         // Create bitmap for the piece
         val pieceBitmap = Bitmap.createBitmap(
@@ -79,11 +99,12 @@ object PuzzlePieceGenerator {
         val canvas = Canvas(pieceBitmap)
         
         // Draw the corresponding section of the original image
+        // Account for the crop offset to center the square grid
         val srcRect = android.graphics.Rect(
-            col * pieceWidth,
-            row * pieceHeight,
-            (col + 1) * pieceWidth,
-            (row + 1) * pieceHeight
+            cropX + col * pieceWidth,
+            cropY + row * pieceHeight,
+            cropX + (col + 1) * pieceWidth,
+            cropY + (row + 1) * pieceHeight
         )
         val dstRect = android.graphics.Rect(0, 0, pieceWidth, pieceHeight)
         

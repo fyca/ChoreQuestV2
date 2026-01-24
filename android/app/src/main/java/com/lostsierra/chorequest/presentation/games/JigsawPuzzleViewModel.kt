@@ -19,16 +19,36 @@ class JigsawPuzzleViewModel @Inject constructor(
 
     companion object {
         /**
-         * List of available puzzle image resource IDs
-         * Images should be named: puzzle_image_1.png, puzzle_image_2.png, etc.
-         * Add resource IDs here as you add images to res/drawable/
+         * Automatically discovers puzzle images in the drawable folder
+         * that follow the naming convention: puzzle_image_1.png, puzzle_image_2.png, etc.
+         * 
+         * @param context Android context to access resources
+         * @return List of resource IDs for discovered puzzle images
          */
-        val AVAILABLE_PUZZLE_IMAGES: List<Int> = listOf(
-            com.lostsierra.chorequest.R.drawable.puzzle_image_1,
-            // Add more images as you add them:
-            // com.lostsierra.chorequest.R.drawable.puzzle_image_2,
-            // com.lostsierra.chorequest.R.drawable.puzzle_image_3,
-        )
+        fun discoverPuzzleImages(context: android.content.Context): List<Int> {
+            val images = mutableListOf<Int>()
+            var index = 1
+            
+            // Keep looking for images until we can't find any more
+            while (true) {
+                val resourceName = "puzzle_image_$index"
+                val resourceId = context.resources.getIdentifier(
+                    resourceName,
+                    "drawable",
+                    context.packageName
+                )
+                
+                // If resource ID is 0, the resource doesn't exist
+                if (resourceId == 0) {
+                    break
+                }
+                
+                images.add(resourceId)
+                index++
+            }
+            
+            return images
+        }
     }
 
     private val _uiState = MutableStateFlow(JigsawPuzzleUiState())
@@ -80,9 +100,13 @@ class JigsawPuzzleViewModel @Inject constructor(
                 
                 // Shuffle pieces (keep original IDs for correct position tracking)
                 val shuffledPieces = pieces.shuffled().mapIndexed { index, piece ->
+                    val newRow = index / cols
+                    val newCol = index % cols
+                    val isCorrect = piece.correctRow == newRow && piece.correctCol == newCol
                     piece.copy(
-                        currentRow = index / cols,
-                        currentCol = index % cols
+                        currentRow = newRow,
+                        currentCol = newCol,
+                        isPlaced = isCorrect
                     )
                 }
                 

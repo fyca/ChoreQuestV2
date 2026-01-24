@@ -147,15 +147,20 @@ fun LoginScreen(
 
     // Handle navigation events
     LaunchedEffect(key1 = Unit) {
+        android.util.Log.d("LoginScreen", "Setting up navigation event collector")
         viewModel.navigationEvent.collect { event ->
+            android.util.Log.d("LoginScreen", "Navigation event received: ${event::class.simpleName}")
             when (event) {
                 is NavigationEvent.NavigateToParentDashboard -> {
+                    android.util.Log.d("LoginScreen", "Navigating to parent dashboard")
                     onNavigateToParentDashboard()
                 }
                 is NavigationEvent.NavigateToChildDashboard -> {
+                    android.util.Log.d("LoginScreen", "Navigating to child dashboard")
                     onNavigateToChildDashboard()
                 }
                 is NavigationEvent.NavigateToQRScanner -> {
+                    android.util.Log.d("LoginScreen", "Navigating to QR scanner")
                     onNavigateToQRScanner()
                 }
             }

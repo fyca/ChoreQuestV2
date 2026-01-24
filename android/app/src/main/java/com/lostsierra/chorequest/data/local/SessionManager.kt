@@ -34,17 +34,29 @@ class SessionManager @Inject constructor(
      */
     fun saveSession(session: DeviceSession) {
         val json = gson.toJson(session)
+        android.util.Log.d("SessionManager", "saveSession() - saving session: userId=${session.userId}, familyId=${session.familyId}, json length=${json.length}")
         sharedPreferences.edit().putString(KEY_SESSION, json).apply()
+        android.util.Log.d("SessionManager", "saveSession() - session saved, verifying...")
+        // Verify it was saved
+        val saved = sharedPreferences.getString(KEY_SESSION, null)
+        android.util.Log.d("SessionManager", "saveSession() - verification: ${if (saved != null) "saved successfully (${saved.length} chars)" else "FAILED - not found"}")
     }
 
     /**
      * Load session
      */
     fun loadSession(): DeviceSession? {
-        val json = sharedPreferences.getString(KEY_SESSION, null) ?: return null
+        val json = sharedPreferences.getString(KEY_SESSION, null)
+        android.util.Log.d("SessionManager", "loadSession() - json is ${if (json != null) "present (${json.length} chars)" else "null"}")
+        if (json == null) {
+            return null
+        }
         return try {
-            gson.fromJson(json, DeviceSession::class.java)
+            val session = gson.fromJson(json, DeviceSession::class.java)
+            android.util.Log.d("SessionManager", "loadSession() - loaded session: userId=${session.userId}, familyId=${session.familyId}")
+            session
         } catch (e: Exception) {
+            android.util.Log.e("SessionManager", "Error loading session", e)
             null
         }
     }
@@ -53,6 +65,7 @@ class SessionManager @Inject constructor(
      * Clear session
      */
     fun clearSession() {
+        android.util.Log.d("SessionManager", "clearSession() called")
         sharedPreferences.edit().clear().apply()
     }
 
@@ -60,7 +73,9 @@ class SessionManager @Inject constructor(
      * Check if session exists
      */
     fun hasValidSession(): Boolean {
-        return loadSession() != null
+        val hasSession = loadSession() != null
+        android.util.Log.d("SessionManager", "hasValidSession() = $hasSession")
+        return hasSession
     }
 
     /**

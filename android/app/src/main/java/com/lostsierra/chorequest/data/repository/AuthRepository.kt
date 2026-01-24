@@ -88,9 +88,14 @@ class AuthRepository @Inject constructor(
                 
                 android.util.Log.d("AuthRepository", "Auth successful: user=${user.name}, role=${user.role}")
        
-                // Save session with lastSynced cleared to ensure sync runs after login
-                val sessionWithClearedSync = session.copy(lastSynced = null)
-                sessionManager.saveSession(sessionWithClearedSync)
+                // Ensure session tokenVersion matches user tokenVersion (session might have different version)
+                // Use user's tokenVersion as the source of truth
+                val correctedSession = session.copy(
+                    tokenVersion = user.tokenVersion,
+                    lastSynced = null
+                )
+                android.util.Log.d(TAG, "Google OAuth login - saving session: userId=${session.userId}, tokenVersion=${user.tokenVersion} (corrected from ${session.tokenVersion})")
+                sessionManager.saveSession(correctedSession)
        
                 // Cache user locally
                 userDao.insertUser(user.toEntity())
@@ -174,9 +179,18 @@ class AuthRepository @Inject constructor(
                     return@flow
                 }
 
-                // Save session with lastSynced cleared to ensure sync runs after login
-                val sessionWithClearedSync = session.copy(lastSynced = null)
-                sessionManager.saveSession(sessionWithClearedSync)
+                // Ensure session tokenVersion matches user tokenVersion (session might have different version)
+                // Use user's tokenVersion as the source of truth
+                val correctedSession = session.copy(
+                    tokenVersion = user.tokenVersion,
+                    lastSynced = null
+                )
+                android.util.Log.d(TAG, "QR login successful - saving session: userId=${session.userId}, familyId=${session.familyId}, tokenVersion=${user.tokenVersion} (corrected from ${session.tokenVersion})")
+                sessionManager.saveSession(correctedSession)
+                
+                // Verify session was saved
+                val savedSession = sessionManager.loadSession()
+                android.util.Log.d(TAG, "Session save verification: ${if (savedSession != null) "SUCCESS - session found" else "FAILED - session not found"}")
 
                 // Cache user locally
                 userDao.insertUser(user.toEntity())
@@ -240,20 +254,22 @@ class AuthRepository @Inject constructor(
                         val user = usersData.users.find { it.id == session.userId }
                         
                         if (user != null) {
-                            // Validate token
-                            if (user.authToken != session.authToken) {
-                                android.util.Log.w(TAG, "Token mismatch")
-                                sessionManager.clearSession()
-                                emit(Result.Error("invalid_token"))
-                                return@flow
-                            }
-                            
-                            // Validate token version
+                            // Validate token version first (more critical)
                             if (user.tokenVersion != session.tokenVersion) {
-                                android.util.Log.w(TAG, "Token version mismatch")
+                                android.util.Log.w(TAG, "Token version mismatch - token was regenerated, need re-authentication")
                                 sessionManager.clearSession()
                                 emit(Result.Error("token_regenerated"))
                                 return@flow
+                            }
+                            
+                            // If token version matches but token itself differs, update the session with new token
+                            // This can happen if token was regenerated via QR code or another device
+                            if (user.authToken != session.authToken) {
+                                android.util.Log.w(TAG, "Token mismatch but version matches - updating session with new token")
+                                // Update session with new token from Drive
+                                val updatedSession = session.copy(authToken = user.authToken)
+                                sessionManager.saveSession(updatedSession)
+                                android.util.Log.d(TAG, "Session token updated successfully")
                             }
                             
                             // Update cached users - save all users, not just the current one
@@ -333,7 +349,9 @@ class AuthRepository @Inject constructor(
      * Check if user has valid session
      */
     fun hasValidSession(): Boolean {
-        return sessionManager.hasValidSession()
+        val hasSession = sessionManager.hasValidSession()
+        android.util.Log.d(TAG, "hasValidSession() = $hasSession")
+        return hasSession
     }
 
     /**

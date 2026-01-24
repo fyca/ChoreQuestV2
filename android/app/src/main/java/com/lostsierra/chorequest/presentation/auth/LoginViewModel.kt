@@ -41,31 +41,39 @@ class LoginViewModel @Inject constructor(
      * Check if user has existing valid session
      */
     private fun checkExistingSession() {
+        android.util.Log.d("LoginViewModel", "checkExistingSession() called")
         if (authRepository.hasValidSession()) {
+            android.util.Log.d("LoginViewModel", "Valid session found, validating...")
             viewModelScope.launch {
                 _loginState.value = LoginState.Loading
                 authRepository.validateSession().collect { result ->
+                    android.util.Log.d("LoginViewModel", "Session validation result: ${result::class.simpleName}")
                     when (result) {
                         is Result.Success -> {
+                            android.util.Log.d("LoginViewModel", "Auto-login successful: ${result.data.name}, role=${result.data.role}")
                             _loginState.value = LoginState.Success(result.data)
                             // Navigate based on user role
-                            _navigationEvent.emit(
-                                if (result.data.role == com.lostsierra.chorequest.domain.models.UserRole.PARENT) {
-                                    NavigationEvent.NavigateToParentDashboard
-                                } else {
-                                    NavigationEvent.NavigateToChildDashboard
-                                }
-                            )
+                            val navEvent = if (result.data.role == com.lostsierra.chorequest.domain.models.UserRole.PARENT) {
+                                NavigationEvent.NavigateToParentDashboard
+                            } else {
+                                NavigationEvent.NavigateToChildDashboard
+                            }
+                            android.util.Log.d("LoginViewModel", "Emitting navigation event: ${navEvent::class.simpleName}")
+                            _navigationEvent.emit(navEvent)
                         }
                         is Result.Error -> {
+                            android.util.Log.w("LoginViewModel", "Session validation failed: ${result.message}")
                             _loginState.value = LoginState.Initial
                         }
                         is Result.Loading -> {
+                            android.util.Log.d("LoginViewModel", "Session validation in progress...")
                             _loginState.value = LoginState.Loading
                         }
                     }
                 }
             }
+        } else {
+            android.util.Log.d("LoginViewModel", "No valid session found")
         }
     }
 

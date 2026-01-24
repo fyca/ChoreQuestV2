@@ -25,6 +25,8 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_MEMORY_MATCH_DIFFICULTY = "memory_match_difficulty"
         private const val KEY_ROCK_PAPER_SCISSORS_HIGH_SCORE = "rock_paper_scissors_high_score"
         private const val KEY_ROCK_PAPER_SCISSORS_DIFFICULTY = "rock_paper_scissors_difficulty"
+        private const val KEY_JIGSAW_PUZZLE_BEST_TIME = "jigsaw_puzzle_best_time"
+        private const val KEY_JIGSAW_PUZZLE_DIFFICULTY = "jigsaw_puzzle_difficulty"
         private const val KEY_SOUND_ENABLED = "sound_enabled"
         private const val KEY_TIC_TAC_TOE_FLIP_MODE = "tic_tac_toe_flip_mode" // "single" or "entire"
         private const val KEY_TIC_TAC_TOE_WIN_CONDITION = "tic_tac_toe_win_condition" // 3, 4, or 5
@@ -109,6 +111,24 @@ class GamePreferencesManager @Inject constructor(
 
     fun saveRockPaperScissorsDifficulty(difficulty: String) {
         sharedPreferences.edit().putString(KEY_ROCK_PAPER_SCISSORS_DIFFICULTY, difficulty).apply()
+    }
+
+    // Jigsaw Puzzle Best Time
+    fun getJigsawPuzzleBestTime(): Int {
+        return sharedPreferences.getInt(KEY_JIGSAW_PUZZLE_BEST_TIME, Int.MAX_VALUE)
+    }
+
+    fun saveJigsawPuzzleBestTime(timeMs: Int) {
+        sharedPreferences.edit().putInt(KEY_JIGSAW_PUZZLE_BEST_TIME, timeMs).apply()
+    }
+
+    // Jigsaw Puzzle Difficulty
+    fun getJigsawPuzzleDifficulty(): String {
+        return sharedPreferences.getString(KEY_JIGSAW_PUZZLE_DIFFICULTY, "medium") ?: "medium"
+    }
+
+    fun saveJigsawPuzzleDifficulty(difficulty: String) {
+        sharedPreferences.edit().putString(KEY_JIGSAW_PUZZLE_DIFFICULTY, difficulty).apply()
     }
 
     // Sound Effects

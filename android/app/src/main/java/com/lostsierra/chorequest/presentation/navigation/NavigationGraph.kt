@@ -28,6 +28,7 @@ import com.lostsierra.chorequest.presentation.games.TicTacToeScreen
 import com.lostsierra.chorequest.presentation.games.ChoreQuizScreen
 import com.lostsierra.chorequest.presentation.games.MemoryMatchScreen
 import com.lostsierra.chorequest.presentation.games.RockPaperScissorsScreen
+import com.lostsierra.chorequest.presentation.games.JigsawPuzzleScreen
 import com.lostsierra.chorequest.data.local.SessionManager
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -327,6 +328,9 @@ fun NavigationGraph(
                 },
                 onNavigateToRockPaperScissors = {
                     navController.navigate(NavigationRoutes.RockPaperScissors.route)
+                },
+                onNavigateToJigsawPuzzle = {
+                    navController.navigate(NavigationRoutes.JigsawPuzzle.route)
                 }
             )
         }
@@ -351,6 +355,12 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.RockPaperScissors.route) {
             RockPaperScissorsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavigationRoutes.JigsawPuzzle.route) {
+            JigsawPuzzleScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

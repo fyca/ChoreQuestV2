@@ -34,6 +34,40 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
 
 /**
+ * Helper function to get human-readable status code meaning
+ */
+private fun getStatusCodeMeaning(statusCode: Int): String {
+    return when (statusCode) {
+        0 -> "SUCCESS"
+        1 -> "SERVICE_MISSING"
+        2 -> "SERVICE_VERSION_UPDATE_REQUIRED"
+        3 -> "SERVICE_DISABLED"
+        4 -> "SIGN_IN_REQUIRED"
+        5 -> "INVALID_ACCOUNT"
+        6 -> "RESOLUTION_REQUIRED"
+        7 -> "NETWORK_ERROR"
+        8 -> "INTERNAL_ERROR"
+        9 -> "SERVICE_INVALID"
+        10 -> "DEVELOPER_ERROR"
+        11 -> "LICENSE_CHECK_FAILED"
+        12 -> "ERROR"
+        13 -> "INTERRUPTED"
+        14 -> "TIMEOUT"
+        15 -> "CANCELED"
+        16 -> "API_NOT_CONNECTED"
+        17 -> "DEAD_CLIENT"
+        18 -> "REMOTE_EXCEPTION"
+        19 -> "CONNECTION_SUSPENDED_DURING_CALL"
+        20 -> "RECONNECTION_TIMED_OUT"
+        21 -> "RECONNECTION_TIMED_OUT_DURING_UPDATE"
+        12500 -> "SIGN_IN_CANCELLED"
+        12501 -> "SIGN_IN_CURRENTLY_IN_PROGRESS"
+        12502 -> "SIGN_IN_FAILED"
+        else -> "UNKNOWN_STATUS_CODE_$statusCode"
+    }
+}
+
+/**
  * Login screen with OAuth and QR code options
  */
 @Composable
@@ -51,6 +85,8 @@ fun LoginScreen(
     // Google Sign-In client - sign out on screen entry to allow account selection
     // IMPORTANT: Request Drive scopes and server auth code for OAuth access token
     val googleSignInClient = remember {
+        android.util.Log.d("LoginScreen", "Creating Google Sign-In client")
+        android.util.Log.d("LoginScreen", "Using Web Client ID: ${com.lostsierra.chorequest.utils.Constants.GOOGLE_WEB_CLIENT_ID}")
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(com.lostsierra.chorequest.utils.Constants.GOOGLE_WEB_CLIENT_ID)
             .requestEmail()
@@ -60,7 +96,11 @@ fun LoginScreen(
             )
             .requestServerAuthCode(com.lostsierra.chorequest.utils.Constants.GOOGLE_WEB_CLIENT_ID, true) // Request server auth code for OAuth token exchange
             .build()
-        GoogleSignIn.getClient(context, gso)
+        android.util.Log.d("LoginScreen", "GoogleSignInOptions built successfully")
+        android.util.Log.d("LoginScreen", "Requested scopes: ${gso.scopeArray?.joinToString { it.scopeUri } ?: "none"}")
+        val client = GoogleSignIn.getClient(context, gso)
+        android.util.Log.d("LoginScreen", "GoogleSignInClient created successfully")
+        client
     }
 
     // Sign out from Google when screen is shown to allow account selection
@@ -82,6 +122,25 @@ fun LoginScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         android.util.Log.d("LoginScreen", "Google Sign-In result code: ${result.resultCode}")
+        android.util.Log.d("LoginScreen", "Result intent: ${result.data}")
+        android.util.Log.d("LoginScreen", "Result intent extras: ${result.data?.extras?.keySet()?.joinToString()}")
+        
+        // Log intent data details for debugging
+        result.data?.let { intent ->
+            intent.extras?.let { extras ->
+                extras.keySet().forEach { key ->
+                    val value = extras.get(key)
+                    android.util.Log.d("LoginScreen", "Intent extra [$key] = ${value?.toString()?.take(200)}")
+                }
+            }
+            // Check for error in intent
+            val errorCode = intent.getIntExtra("errorCode", -1)
+            val errorMessage = intent.getStringExtra("errorMessage")
+            if (errorCode != -1 || errorMessage != null) {
+                android.util.Log.e("LoginScreen", "Error in intent - errorCode: $errorCode, errorMessage: $errorMessage")
+            }
+        }
+        
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
@@ -137,10 +196,40 @@ fun LoginScreen(
                     android.util.Log.e("LoginScreen", "ID token is null")
                 }
             } catch (e: ApiException) {
-                android.util.Log.e("LoginScreen", "Google Sign-In failed", e)
+                android.util.Log.e("LoginScreen", "Google Sign-In failed with ApiException", e)
                 android.util.Log.e("LoginScreen", "Status code: ${e.statusCode}")
+                android.util.Log.e("LoginScreen", "Status code meaning: ${getStatusCodeMeaning(e.statusCode)}")
+                android.util.Log.e("LoginScreen", "Exception message: ${e.message}")
+                android.util.Log.e("LoginScreen", "Exception cause: ${e.cause}")
+            } catch (e: Exception) {
+                android.util.Log.e("LoginScreen", "Google Sign-In failed with unexpected exception", e)
+                android.util.Log.e("LoginScreen", "Exception type: ${e::class.simpleName}")
+                android.util.Log.e("LoginScreen", "Exception message: ${e.message}")
             }
         } else {
+            // Even when result code is not OK, try to extract error information
+            android.util.Log.w("LoginScreen", "Google Sign-In result code is not OK (${result.resultCode})")
+            
+            // Try to get error from intent even when result code is not OK
+            result.data?.let { intent ->
+                try {
+                    val task = GoogleSignIn.getSignedInAccountFromIntent(intent)
+                    try {
+                        val account = task.getResult(ApiException::class.java)
+                        android.util.Log.w("LoginScreen", "Unexpected: Got account even with non-OK result code: ${account.email}")
+                    } catch (e: ApiException) {
+                        android.util.Log.e("LoginScreen", "Error extracted from intent (non-OK result)", e)
+                        android.util.Log.e("LoginScreen", "Status code: ${e.statusCode}")
+                        android.util.Log.e("LoginScreen", "Status code meaning: ${getStatusCodeMeaning(e.statusCode)}")
+                        android.util.Log.e("LoginScreen", "Exception message: ${e.message}")
+                    } catch (e: Exception) {
+                        android.util.Log.e("LoginScreen", "Error extracting account from intent (non-OK result)", e)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("LoginScreen", "Failed to parse intent for error details", e)
+                }
+            }
+            
             android.util.Log.d("LoginScreen", "Google Sign-In cancelled or failed")
         }
     }
@@ -265,8 +354,17 @@ fun LoginScreen(
                 // Show login content while authorization dialog is visible
                 LoginContent(
                     onGoogleSignIn = {
-                        val signInIntent = googleSignInClient.signInIntent
-                        googleSignInLauncher.launch(signInIntent)
+                        android.util.Log.d("LoginScreen", "Launching Google Sign-In (AuthorizationRequired state)")
+                        android.util.Log.d("LoginScreen", "Google Sign-In Client ID: ${com.lostsierra.chorequest.utils.Constants.GOOGLE_WEB_CLIENT_ID}")
+                        try {
+                            val signInIntent = googleSignInClient.signInIntent
+                            android.util.Log.d("LoginScreen", "Sign-in intent created successfully")
+                            android.util.Log.d("LoginScreen", "Sign-in intent action: ${signInIntent.action}")
+                            android.util.Log.d("LoginScreen", "Sign-in intent component: ${signInIntent.component}")
+                            googleSignInLauncher.launch(signInIntent)
+                        } catch (e: Exception) {
+                            android.util.Log.e("LoginScreen", "Error creating or launching sign-in intent", e)
+                        }
                     },
                     onQRCodeLogin = {
                         viewModel.navigateToQRScanner()
@@ -287,8 +385,17 @@ fun LoginScreen(
                         //viewModel.loginWithGoogle("mock_token_for_testing")
                         
                         // Real Google Sign-In
-                        val signInIntent = googleSignInClient.signInIntent
-                        googleSignInLauncher.launch(signInIntent)
+                        android.util.Log.d("LoginScreen", "Launching Google Sign-In (default state)")
+                        android.util.Log.d("LoginScreen", "Google Sign-In Client ID: ${com.lostsierra.chorequest.utils.Constants.GOOGLE_WEB_CLIENT_ID}")
+                        try {
+                            val signInIntent = googleSignInClient.signInIntent
+                            android.util.Log.d("LoginScreen", "Sign-in intent created successfully")
+                            android.util.Log.d("LoginScreen", "Sign-in intent action: ${signInIntent.action}")
+                            android.util.Log.d("LoginScreen", "Sign-in intent component: ${signInIntent.component}")
+                            googleSignInLauncher.launch(signInIntent)
+                        } catch (e: Exception) {
+                            android.util.Log.e("LoginScreen", "Error creating or launching sign-in intent", e)
+                        }
                         
                     },
                     onQRCodeLogin = {

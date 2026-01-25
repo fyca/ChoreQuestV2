@@ -23,6 +23,7 @@ val parentNavItems = listOf(
     NavItem("Chores", Icons.Default.List, "chore_list"),
     NavItem("Rewards", Icons.Default.CardGiftcard, "reward_list"),
     NavItem("Family", Icons.Default.People, "user_list"),
+    NavItem("Games", Icons.Default.Games, "games"),
     NavItem("Settings", Icons.Default.Settings, "settings")
 )
 

@@ -14,7 +14,8 @@ const FILE_NAMES = {
   REWARDS: 'rewards.json',
   REWARD_REDEMPTIONS: 'reward_redemptions.json',
   TRANSACTIONS: 'transactions.json',
-  ACTIVITY_LOG: 'activity_log.json'
+  ACTIVITY_LOG: 'activity_log.json',
+  TIC_TAC_TOE_GAMES: 'tic_tac_toe_games.json'
 };
 
 /**

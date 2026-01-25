@@ -38,6 +38,7 @@ fun ParentDashboardScreen(
     onNavigateToActivityLog: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToLogin: () -> Unit,
+    onNavigateToGames: () -> Unit = {},
     onNavigateToChoreDetail: (String) -> Unit = {},
     onNavigateToCompleteChore: (String) -> Unit = {},
     onNavigateToCreateChore: () -> Unit = {},
@@ -87,6 +88,7 @@ fun ParentDashboardScreen(
                         "chore_list" -> onNavigateToChoreList()
                         "reward_list" -> onNavigateToRewardList()
                         "user_list" -> onNavigateToUserList()
+                        "games" -> onNavigateToGames()
                         "settings" -> onNavigateToSettings()
                     }
                 }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Divider
 import androidx.compose.material3.*
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.*
@@ -100,7 +101,8 @@ fun TicTacToeScreen(
                     isAITurn = uiState.isAITurn,
                     player1Name = uiState.player1Name,
                     player2Name = uiState.player2Name,
-                    gameMode = uiState.gameMode
+                    gameMode = uiState.gameMode,
+                    uiState = uiState
                 )
 
                 // Game board
@@ -119,10 +121,23 @@ fun TicTacToeScreen(
                 )
 
                 // Action buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (uiState.gameMode == GameMode.REMOTE_PLAY && uiState.isWaitingForOpponent) {
+                    Button(
+                        onClick = { viewModel.refreshRemoteGame() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Refresh")
+                    }
+                } else {
                     Button(
                         onClick = { viewModel.newGame() },
                         modifier = Modifier.weight(1f),
@@ -134,19 +149,20 @@ fun TicTacToeScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("New Game")
                     }
-
-                    Button(
-                        onClick = { viewModel.resetScore() },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary
-                        )
-                    ) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Reset Score")
-                    }
                 }
+
+                Button(
+                    onClick = { viewModel.resetScore() },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Icon(Icons.Default.RestartAlt, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Reset Score")
+                }
+            }
             }
         }
         
@@ -228,7 +244,7 @@ fun TicTacToeScreen(
             onGameModeSelected = { gameMode ->
                 viewModel.setGameMode(gameMode)
                 showGameModeDialog = false
-                if (gameMode == GameMode.FAMILY_USER || gameMode == GameMode.LOCAL_PLAYER) {
+                if (gameMode == GameMode.FAMILY_USER || gameMode == GameMode.LOCAL_PLAYER || gameMode == GameMode.REMOTE_PLAY) {
                     showOpponentDialog = true
                 }
             },
@@ -247,6 +263,24 @@ fun TicTacToeScreen(
                 showOpponentDialog = false
             },
             onDismiss = { showOpponentDialog = false },
+            viewModel = viewModel
+        )
+    }
+
+    // Game selection dialog (for remote play - shows existing games or option to start new)
+    if (uiState.showGameSelectionDialog) {
+        RemoteGameSelectionDialog(
+            availableGames = uiState.availableGames,
+            opponentName = uiState.pendingOpponentName ?: "Opponent",
+            onGameSelected = { gameId ->
+                viewModel.resumeRemoteGame(gameId)
+            },
+            onStartNewGame = {
+                viewModel.startNewRemoteGame()
+            },
+            onDismiss = {
+                viewModel.dismissGameSelectionDialog()
+            },
             viewModel = viewModel
         )
     }
@@ -360,6 +394,7 @@ private fun GameModeAndDifficultyCard(
                                 GameMode.AI -> "vs AI"
                                 GameMode.FAMILY_USER -> opponentName?.let { "vs $it" } ?: "vs Family"
                                 GameMode.LOCAL_PLAYER -> opponentName?.let { "vs $it" } ?: "vs Player 2"
+                                GameMode.REMOTE_PLAY -> opponentName?.let { "vs $it (Remote)" } ?: "vs Opponent (Remote)"
                             },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -714,7 +749,8 @@ private fun GameStatusCard(
     isAITurn: Boolean,
     player1Name: String,
     player2Name: String,
-    gameMode: GameMode
+    gameMode: GameMode,
+    uiState: TicTacToeUiState
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -731,6 +767,16 @@ private fun GameStatusCard(
         ) {
             Text(
                 text = when {
+                    gameMode == GameMode.REMOTE_PLAY -> {
+                        val currentState = uiState
+                        if (currentState.isWaitingForOpponent) {
+                            "⏳ Waiting for $player2Name's move..."
+                        } else if (currentState.isMyTurn) {
+                            "✅ Your turn!"
+                        } else {
+                            "$player2Name's turn!"
+                        }
+                    }
                     isAITurn && gameMode == GameMode.AI -> "🤖 AI is thinking..."
                     isAITurn -> "$player2Name's turn!"
                     else -> "$player1Name's turn!"
@@ -1637,6 +1683,13 @@ private fun GameModeSelectionDialog(
                     isSelected = currentGameMode == GameMode.LOCAL_PLAYER,
                     onClick = { onGameModeSelected(GameMode.LOCAL_PLAYER) }
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                DifficultyOption(
+                    label = "Remote Play",
+                    description = "Play with a family member remotely (like playing by mail)",
+                    isSelected = currentGameMode == GameMode.REMOTE_PLAY,
+                    onClick = { onGameModeSelected(GameMode.REMOTE_PLAY) }
+                )
             }
         },
         confirmButton = {
@@ -1665,7 +1718,7 @@ private fun OpponentSelectionDialog(
     }
     
     val availableUsers = remember(allUsers, currentUserId) {
-        if (gameMode == GameMode.FAMILY_USER) {
+        if (gameMode == GameMode.FAMILY_USER || gameMode == GameMode.REMOTE_PLAY) {
             allUsers.filter { it.id != currentUserId }
         } else {
             emptyList()
@@ -1678,11 +1731,15 @@ private fun OpponentSelectionDialog(
         onDismissRequest = onDismiss,
         title = { 
             Text(
-                text = if (gameMode == GameMode.FAMILY_USER) "Select Opponent" else "Enter Player 2 Name"
+                text = when (gameMode) {
+                    GameMode.FAMILY_USER -> "Select Opponent"
+                    GameMode.REMOTE_PLAY -> "Select Remote Opponent"
+                    else -> "Enter Player 2 Name"
+                }
             )
         },
         text = {
-            if (gameMode == GameMode.FAMILY_USER) {
+            if (gameMode == GameMode.FAMILY_USER || gameMode == GameMode.REMOTE_PLAY) {
                 if (availableUsers.isEmpty()) {
                     Text("No other family members available")
                 } else {
@@ -1726,4 +1783,142 @@ private fun OpponentSelectionDialog(
             }
         }
     )
+}
+
+@Composable
+private fun RemoteGameSelectionDialog(
+    availableGames: List<RemoteGameState>,
+    opponentName: String,
+    onGameSelected: (String) -> Unit,
+    onStartNewGame: () -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: TicTacToeViewModel
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text("Games with $opponentName")
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (availableGames.isEmpty()) {
+                    Text("No games in progress")
+                } else {
+                    Text(
+                        text = "Select a game to resume:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    availableGames.forEach { game ->
+                        RemoteGameOption(
+                            game = game,
+                            currentUserId = viewModel.sessionManager.loadSession()?.userId ?: "",
+                            onClick = { onGameSelected(game.gameId) }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                Button(
+                    onClick = onStartNewGame,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Start New Game")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun RemoteGameOption(
+    game: RemoteGameState,
+    currentUserId: String,
+    onClick: () -> Unit
+) {
+    val isPlayerX = game.player1Id == currentUserId
+    val myPlayer = if (isPlayerX) "X" else "O"
+    val opponentPlayer = if (isPlayerX) "O" else "X"
+    val moveCount = game.board.count { it != null }
+    val isMyTurn = (game.currentPlayer == "X" && isPlayerX) || (game.currentPlayer == "O" && !isPlayerX)
+    
+    // Format last updated time
+    val lastUpdated = java.time.Instant.ofEpochMilli(game.lastUpdated)
+        .atZone(java.time.ZoneId.systemDefault())
+        .toLocalDateTime()
+    val timeAgo = when {
+        java.time.Duration.between(lastUpdated, java.time.LocalDateTime.now()).toMinutes() < 1 -> "Just now"
+        java.time.Duration.between(lastUpdated, java.time.LocalDateTime.now()).toHours() < 1 -> 
+            "${java.time.Duration.between(lastUpdated, java.time.LocalDateTime.now()).toMinutes()}m ago"
+        java.time.Duration.between(lastUpdated, java.time.LocalDateTime.now()).toDays() < 1 -> 
+            "${java.time.Duration.between(lastUpdated, java.time.LocalDateTime.now()).toHours()}h ago"
+        else -> "${java.time.Duration.between(lastUpdated, java.time.LocalDateTime.now()).toDays()}d ago"
+    }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        border = if (isMyTurn) {
+            androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isMyTurn) "Your turn ($myPlayer)" else "$opponentPlayer's turn",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isMyTurn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = timeAgo,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Moves: $moveCount",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+                Text(
+                    text = "Score: ${if (isPlayerX) game.playerXScore else game.playerOScore} - ${if (isPlayerX) game.playerOScore else game.playerXScore}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+        }
+    }
 }

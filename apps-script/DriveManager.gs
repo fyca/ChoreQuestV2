@@ -372,7 +372,8 @@ function getFileNameForEntityType(entityType) {
     'recurring_chore_templates': FILE_NAMES.RECURRING_CHORE_TEMPLATES,
     'rewards': FILE_NAMES.REWARDS,
     'transactions': FILE_NAMES.TRANSACTIONS,
-    'activity_log': FILE_NAMES.ACTIVITY_LOG
+    'activity_log': FILE_NAMES.ACTIVITY_LOG,
+    'tic_tac_toe_games': FILE_NAMES.TIC_TAC_TOE_GAMES
   };
   
   const fileName = mapping[entityType] || null;

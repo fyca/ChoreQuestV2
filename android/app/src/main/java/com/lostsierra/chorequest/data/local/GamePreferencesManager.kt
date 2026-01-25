@@ -40,6 +40,10 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_BREAKOUT_GAME_DIFFICULTY = "breakout_game_difficulty"
         private const val KEY_BREAKOUT_GAME_SAVED_STATE = "breakout_game_saved_state"
         private const val KEY_BREAKOUT_GAME_HAS_SAVED_GAME = "breakout_game_has_saved_game"
+        private const val KEY_MATH_GAME_HIGH_SCORE = "math_game_high_score"
+        private const val KEY_MATH_GAME_DIFFICULTY = "math_game_difficulty"
+        private const val KEY_MATH_GAME_PROBLEM_TYPES = "math_game_problem_types"
+        private const val KEY_MATH_GAME_GRADE_LEVEL = "math_game_grade_level"
     }
 
     // Tic-Tac-Toe High Score
@@ -289,5 +293,59 @@ class GamePreferencesManager @Inject constructor(
             .remove(KEY_BREAKOUT_GAME_SAVED_STATE)
             .putBoolean(KEY_BREAKOUT_GAME_HAS_SAVED_GAME, false)
             .apply()
+    }
+
+    // Math Game High Score
+    fun getMathGameHighScore(): Int {
+        return sharedPreferences.getInt(KEY_MATH_GAME_HIGH_SCORE, 0)
+    }
+
+    fun saveMathGameHighScore(score: Int) {
+        sharedPreferences.edit().putInt(KEY_MATH_GAME_HIGH_SCORE, score).apply()
+    }
+
+    // Math Game Difficulty
+    fun getMathGameDifficulty(): String {
+        return sharedPreferences.getString(KEY_MATH_GAME_DIFFICULTY, "medium") ?: "medium"
+    }
+
+    fun saveMathGameDifficulty(difficulty: String) {
+        sharedPreferences.edit().putString(KEY_MATH_GAME_DIFFICULTY, difficulty).apply()
+    }
+
+    // Math Game Problem Types
+    fun getMathGameProblemTypes(): Set<com.lostsierra.chorequest.presentation.games.MathOperation> {
+        val typesString = sharedPreferences.getString(KEY_MATH_GAME_PROBLEM_TYPES, null)
+        return if (typesString.isNullOrBlank()) {
+            setOf(
+                com.lostsierra.chorequest.presentation.games.MathOperation.ADDITION,
+                com.lostsierra.chorequest.presentation.games.MathOperation.SUBTRACTION,
+                com.lostsierra.chorequest.presentation.games.MathOperation.MULTIPLICATION,
+                com.lostsierra.chorequest.presentation.games.MathOperation.DIVISION
+            )
+        } else {
+            typesString.split(",").mapNotNull { typeName ->
+                try {
+                    com.lostsierra.chorequest.presentation.games.MathOperation.valueOf(typeName.trim())
+                } catch (e: IllegalArgumentException) {
+                    null
+                }
+            }.toSet()
+        }
+    }
+
+    fun saveMathGameProblemTypes(types: Set<com.lostsierra.chorequest.presentation.games.MathOperation>) {
+        val typesString = types.joinToString(",") { it.name }
+        sharedPreferences.edit().putString(KEY_MATH_GAME_PROBLEM_TYPES, typesString).apply()
+    }
+
+    // Math Game Grade Level
+    fun getMathGameGradeLevel(): com.lostsierra.chorequest.presentation.games.GradeLevel {
+        val gradeValue = sharedPreferences.getInt(KEY_MATH_GAME_GRADE_LEVEL, 3) // Default to Grade 3
+        return com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
+    }
+
+    fun saveMathGameGradeLevel(grade: com.lostsierra.chorequest.presentation.games.GradeLevel) {
+        sharedPreferences.edit().putInt(KEY_MATH_GAME_GRADE_LEVEL, grade.value).apply()
     }
 }

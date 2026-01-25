@@ -37,7 +37,8 @@ fun GamesScreen(
     onNavigateToRockPaperScissors: () -> Unit = {},
     onNavigateToJigsawPuzzle: () -> Unit = {},
     onNavigateToSnakeGame: () -> Unit = {},
-    onNavigateToBreakoutGame: () -> Unit = {}
+    onNavigateToBreakoutGame: () -> Unit = {},
+    onNavigateToMathGame: () -> Unit = {}
 ) {
     val games = remember {
         listOf(
@@ -95,6 +96,14 @@ fun GamesScreen(
                 emoji = "🎮",
                 description = "Break the bricks!",
                 color = Color(0xFFFF5722),
+                isLocked = false
+            ),
+            Game(
+                id = "math",
+                title = "Math Game",
+                emoji = "🔢",
+                description = "Solve math problems!",
+                color = Color(0xFF673AB7),
                 isLocked = false
             )
         )
@@ -171,6 +180,7 @@ fun GamesScreen(
                                 "puzzle" -> onNavigateToJigsawPuzzle()
                                 "snake" -> onNavigateToSnakeGame()
                                 "breakout" -> onNavigateToBreakoutGame()
+                                "math" -> onNavigateToMathGame()
                                 // TODO: Add navigation for other games
                                 else -> {
                                     // Placeholder for other games

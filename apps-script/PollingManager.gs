@@ -413,7 +413,8 @@ function getBatchData(types, familyId) {
       'rewards': FILE_NAMES.REWARDS,
       'reward_redemptions': FILE_NAMES.REWARD_REDEMPTIONS,
       'transactions': FILE_NAMES.TRANSACTIONS,
-      'activity_log': FILE_NAMES.ACTIVITY_LOG
+      'activity_log': FILE_NAMES.ACTIVITY_LOG,
+      'tic_tac_toe_games': FILE_NAMES.TIC_TAC_TOE_GAMES
     };
     
     // Load all requested files

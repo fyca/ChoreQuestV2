@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.lostsierra.chorequest.data.local.GamePreferencesManager
 import com.lostsierra.chorequest.data.local.SessionManager
 import com.lostsierra.chorequest.data.repository.UserRepository
+import com.lostsierra.chorequest.data.remote.ChoreQuestApi
 import com.lostsierra.chorequest.domain.models.User
 import com.lostsierra.chorequest.utils.SoundManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,10 +17,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import android.util.Log
+import java.util.UUID
 import javax.inject.Inject
 
 enum class GameMode {
-    AI, FAMILY_USER, LOCAL_PLAYER
+    AI, FAMILY_USER, LOCAL_PLAYER, REMOTE_PLAY
 }
 
 data class TicTacToeUiState(
@@ -35,11 +40,43 @@ data class TicTacToeUiState(
     val columnsToFlip: Set<Int> = emptySet(),
     val flipMode: String = "entire", // "single" or "entire"
     val gameMode: GameMode = GameMode.AI,
-    val opponentUserId: String? = null, // For FAMILY_USER mode
-    val opponentName: String? = null, // For FAMILY_USER or LOCAL_PLAYER mode
+    val opponentUserId: String? = null, // For FAMILY_USER or REMOTE_PLAY mode
+    val opponentName: String? = null, // For FAMILY_USER, LOCAL_PLAYER, or REMOTE_PLAY mode
     val player1Name: String = "You", // Player X name
     val player2Name: String = "AI", // Player O name
-    val winCondition: Int = 0 // 0 = use boardSize, 3-5 = custom win condition (only for hard/flip)
+    val winCondition: Int = 0, // 0 = use boardSize, 3-5 = custom win condition (only for hard/flip)
+    val remoteGameId: String? = null, // For REMOTE_PLAY mode - unique game ID
+    val isWaitingForOpponent: Boolean = false, // For REMOTE_PLAY mode - true when waiting for opponent's move
+    val isMyTurn: Boolean = true, // For REMOTE_PLAY mode - true when it's current user's turn
+    val lastSyncTime: Long = 0L, // Timestamp of last sync for polling
+    val availableGames: List<RemoteGameState> = emptyList(), // In-progress games available to resume
+    val showGameSelectionDialog: Boolean = false, // Show dialog to select existing game or start new
+    val pendingOpponentUserId: String? = null, // Opponent ID pending game selection
+    val pendingOpponentName: String? = null // Opponent name pending game selection
+)
+
+// Data model for remote game state
+data class RemoteGameState(
+    val gameId: String,
+    val player1Id: String, // Player X
+    val player1Name: String,
+    val player2Id: String, // Player O
+    val player2Name: String,
+    val boardSize: Int,
+    val board: List<String?>, // "X", "O", or null
+    val currentPlayer: String, // "X" or "O"
+    val playerXScore: Int,
+    val playerOScore: Int,
+    val difficulty: String,
+    val winCondition: Int,
+    val isGameOver: Boolean,
+    val winner: String?, // "X", "O", or null (null = draw or ongoing)
+    val createdAt: Long,
+    val lastUpdated: Long
+)
+
+data class TicTacToeGamesData(
+    val games: Map<String, RemoteGameState> = emptyMap()
 )
 
 @HiltViewModel
@@ -47,8 +84,23 @@ class TicTacToeViewModel @Inject constructor(
     private val gamePreferencesManager: GamePreferencesManager,
     private val soundManager: SoundManager,
     val userRepository: UserRepository,
-    val sessionManager: SessionManager
+    val sessionManager: SessionManager,
+    private val api: ChoreQuestApi,
+    private val gson: Gson,
+    private val driveApiService: com.lostsierra.chorequest.data.drive.DriveApiService,
+    private val tokenManager: com.lostsierra.chorequest.data.drive.TokenManager
 ) : ViewModel() {
+    
+    companion object {
+        private const val TAG = "TicTacToeViewModel"
+        private const val POLL_INTERVAL_MS = 3000L // Poll every 3 seconds (currently disabled - manual refresh only)
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        // Stop any polling when ViewModel is cleared
+        stopPolling()
+    }
 
     private val _uiState = MutableStateFlow(
         TicTacToeUiState(
@@ -225,6 +277,23 @@ class TicTacToeViewModel @Inject constructor(
 
     fun onCellClick(index: Int) {
         val currentState = _uiState.value
+        
+        // Handle remote play mode
+        if (currentState.gameMode == GameMode.REMOTE_PLAY) {
+            if (!currentState.isMyTurn || currentState.isWaitingForOpponent) {
+                return // Not your turn
+            }
+            val session = sessionManager.loadSession() ?: return
+            val currentUserId = session.userId
+            // Determine which player we are
+            val isPlayerX = currentState.opponentUserId?.let { currentUserId < it } ?: true
+            val playerToMove = if (isPlayerX) Player.X else Player.O
+            
+            // Make the move remotely
+            makeRemoteMove(index, playerToMove)
+            soundManager.playSound(SoundManager.SoundType.CLICK)
+            return
+        }
         
         // Determine which player should move
         val playerToMove = if (currentState.gameMode == GameMode.AI) {
@@ -566,13 +635,17 @@ class TicTacToeViewModel @Inject constructor(
             GameMode.AI -> "AI"
             GameMode.FAMILY_USER -> currentState.opponentName ?: "Opponent"
             GameMode.LOCAL_PLAYER -> currentState.opponentName ?: "Player 2"
+            GameMode.REMOTE_PLAY -> currentState.opponentName ?: "Opponent"
         }
         
         _uiState.value = currentState.copy(
             gameMode = gameMode,
             player1Name = player1Name,
             player2Name = player2Name,
-            isAITurn = false
+            isAITurn = false,
+            isWaitingForOpponent = false,
+            isMyTurn = true,
+            remoteGameId = null
         )
         newGame() // Start new game with new mode
     }
@@ -583,14 +656,142 @@ class TicTacToeViewModel @Inject constructor(
             GameMode.AI -> "AI"
             GameMode.FAMILY_USER -> opponentName ?: "Opponent"
             GameMode.LOCAL_PLAYER -> opponentName ?: "Player 2"
+            GameMode.REMOTE_PLAY -> opponentName ?: "Opponent"
         }
         
+        if (currentState.gameMode == GameMode.REMOTE_PLAY && opponentUserId != null && opponentName != null) {
+            // Check for existing games with this opponent
+            viewModelScope.launch {
+                val existingGames = getInProgressGamesWithOpponent(opponentUserId)
+                if (existingGames.isNotEmpty()) {
+                    // Show dialog to select existing game or start new one
+                    _uiState.value = currentState.copy(
+                        availableGames = existingGames,
+                        showGameSelectionDialog = true,
+                        pendingOpponentUserId = opponentUserId,
+                        pendingOpponentName = opponentName
+                    )
+                } else {
+                    // No existing games, start new one
+                    startRemoteGame(opponentUserId, opponentName)
+                }
+            }
+        } else {
+            _uiState.value = currentState.copy(
+                opponentUserId = opponentUserId,
+                opponentName = opponentName,
+                player2Name = player2Name
+            )
+            newGame() // Start new game with new opponent
+        }
+    }
+    
+    fun resumeRemoteGame(gameId: String) {
+        viewModelScope.launch {
+            loadRemoteGameState(gameId)
+            // Clear the selection dialog state after loading
+            val updatedState = _uiState.value
+            _uiState.value = updatedState.copy(
+                showGameSelectionDialog = false,
+                availableGames = emptyList(),
+                pendingOpponentUserId = null,
+                pendingOpponentName = null
+            )
+        }
+    }
+    
+    fun startNewRemoteGame() {
+        val currentState = _uiState.value
+        val opponentUserId = currentState.pendingOpponentUserId
+        val opponentName = currentState.pendingOpponentName
+        
+        if (opponentUserId != null && opponentName != null) {
+            startRemoteGame(opponentUserId, opponentName)
+            _uiState.value = currentState.copy(
+                showGameSelectionDialog = false,
+                availableGames = emptyList(),
+                pendingOpponentUserId = null,
+                pendingOpponentName = null
+            )
+        }
+    }
+    
+    fun dismissGameSelectionDialog() {
+        val currentState = _uiState.value
         _uiState.value = currentState.copy(
-            opponentUserId = opponentUserId,
-            opponentName = opponentName,
-            player2Name = player2Name
+            showGameSelectionDialog = false,
+            availableGames = emptyList(),
+            pendingOpponentUserId = null,
+            pendingOpponentName = null
         )
-        newGame() // Start new game with new opponent
+    }
+    
+    private suspend fun getInProgressGamesWithOpponent(opponentUserId: String): List<RemoteGameState> {
+        return try {
+            val session = sessionManager.loadSession() ?: return emptyList()
+            val currentUserId = session.userId
+            
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            val gamesData = if (accessToken != null && folderId != null) {
+                try {
+                    Log.d(TAG, "Using direct Drive API to load in-progress games")
+                    val fileName = "tic_tac_toe_games.json"
+                    
+                    val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+                    if (fileId != null) {
+                        val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                        gson.fromJson(jsonContent, TicTacToeGamesData::class.java)
+                            ?: TicTacToeGamesData()
+                    } else {
+                        TicTacToeGamesData()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                    // Fallback below
+                    null
+                }
+            } else {
+                null
+            } ?: run {
+                // Fallback to Apps Script
+                Log.d(TAG, "Falling back to Apps Script to load in-progress games")
+                val response = api.getData(
+                    path = "data",
+                    action = "get",
+                    type = "tic_tac_toe_games",
+                    familyId = session.familyId
+                )
+                
+                if (response.isSuccessful && response.body()?.success == true) {
+                    val dataJson = response.body()?.data as? Map<*, *>
+                    if (dataJson != null && dataJson.containsKey("games")) {
+                        val gamesMap = dataJson["games"] as? Map<*, *> ?: emptyMap<String, RemoteGameState>()
+                        val games = gamesMap.mapValues { (_, value) ->
+                            gson.fromJson(gson.toJson(value), RemoteGameState::class.java)
+                        } as Map<String, RemoteGameState>
+                        TicTacToeGamesData(games = games)
+                    } else {
+                        TicTacToeGamesData()
+                    }
+                } else {
+                    TicTacToeGamesData()
+                }
+            }
+            
+            // Filter games where current user is player1 or player2, opponent is the other player, and game is not over
+            gamesData.games.values.filter { game ->
+                val isPlayerInGame = game.player1Id == currentUserId || game.player2Id == currentUserId
+                val isOpponentInGame = game.player1Id == opponentUserId || game.player2Id == opponentUserId
+                val isNotOver = !game.isGameOver
+                isPlayerInGame && isOpponentInGame && isNotOver
+            }.sortedByDescending { it.lastUpdated } // Most recent first
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading in-progress games", e)
+            emptyList()
+        }
     }
 
     private fun updateHighScore(newScore: Int) {
@@ -599,5 +800,400 @@ class TicTacToeViewModel @Inject constructor(
             gamePreferencesManager.saveTicTacToeHighScore(newScore)
             _uiState.value = _uiState.value.copy(highScore = newScore)
         }
+    }
+
+    // Remote play methods
+    fun startRemoteGame(opponentUserId: String, opponentName: String) {
+        val session = sessionManager.loadSession() ?: return
+        val currentUserId = session.userId
+        
+        val gameId = UUID.randomUUID().toString()
+        val currentState = _uiState.value
+        
+        // Determine which player is X and which is O (alphabetically by user ID)
+        val isPlayerX = currentUserId < opponentUserId
+        val player1Id = if (isPlayerX) currentUserId else opponentUserId
+        val player1Name = if (isPlayerX) "You" else opponentName
+        val player2Id = if (isPlayerX) opponentUserId else currentUserId
+        val player2Name = if (isPlayerX) opponentName else "You"
+        
+        val boardSize = getBoardSize(currentState.difficulty)
+        val remoteGameState = RemoteGameState(
+            gameId = gameId,
+            player1Id = player1Id,
+            player1Name = player1Name,
+            player2Id = player2Id,
+            player2Name = player2Name,
+            boardSize = boardSize,
+            board = List(boardSize * boardSize) { null },
+            currentPlayer = "X", // X always starts
+            playerXScore = 0,
+            playerOScore = 0,
+            difficulty = currentState.difficulty,
+            winCondition = if (currentState.winCondition > 0) currentState.winCondition else boardSize,
+            isGameOver = false,
+            winner = null,
+            createdAt = System.currentTimeMillis(),
+            lastUpdated = System.currentTimeMillis()
+        )
+        
+        _uiState.value = currentState.copy(
+            gameMode = GameMode.REMOTE_PLAY,
+            opponentUserId = opponentUserId,
+            opponentName = opponentName,
+            remoteGameId = gameId,
+            isMyTurn = isPlayerX, // X starts, so if we're X, it's our turn
+            isWaitingForOpponent = !isPlayerX,
+            player1Name = player1Name,
+            player2Name = player2Name,
+            gameState = GameState(
+                boardSize = boardSize,
+                board = arrayOfNulls(boardSize * boardSize),
+                currentPlayer = Player.X,
+                playerXScore = 0,
+                playerOScore = 0
+            ),
+            lastSyncTime = System.currentTimeMillis()
+        )
+        
+        saveRemoteGameState(remoteGameState)
+        
+        // Don't start automatic polling - user must click refresh to check for opponent moves
+    }
+
+    fun refreshRemoteGame() {
+        val currentState = _uiState.value
+        val gameId = currentState.remoteGameId ?: return
+        
+        viewModelScope.launch {
+            try {
+                loadRemoteGameState(gameId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error refreshing remote game", e)
+            }
+        }
+    }
+
+    private fun saveRemoteGameState(remoteGameState: RemoteGameState) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val session = sessionManager.loadSession() ?: return@launch
+                
+                // Try direct Drive API first
+                val accessToken = tokenManager.getValidAccessToken()
+                val folderId = session.driveWorkbookLink
+                
+                if (accessToken != null && folderId != null) {
+                    try {
+                        Log.d(TAG, "Using direct Drive API to save remote game state")
+                        val fileName = "tic_tac_toe_games.json"
+                        
+                        // Read existing games
+                        val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+                        val gamesData = if (fileId != null) {
+                            val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                            gson.fromJson(jsonContent, TicTacToeGamesData::class.java)
+                                ?: TicTacToeGamesData()
+                        } else {
+                            TicTacToeGamesData()
+                        }
+                        
+                        // Update or add the game
+                        val updatedGames = gamesData.games.toMutableMap()
+                        updatedGames[remoteGameState.gameId] = remoteGameState.copy(
+                            lastUpdated = System.currentTimeMillis()
+                        )
+                        
+                        val updatedData = TicTacToeGamesData(games = updatedGames)
+                        val jsonContent = gson.toJson(updatedData)
+                        
+                        // Write back to Drive
+                        driveApiService.writeFileContent(accessToken, folderId, fileName, jsonContent)
+                        
+                        Log.d(TAG, "Remote game state saved successfully via Drive API")
+                        _uiState.value = _uiState.value.copy(lastSyncTime = System.currentTimeMillis())
+                        return@launch
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                    }
+                } else {
+                    Log.d(TAG, "No access token or folder ID available, using Apps Script")
+                }
+                
+                // Fallback to Apps Script
+                Log.d(TAG, "Falling back to Apps Script to save remote game state")
+                val response = api.getData(
+                    path = "data",
+                    action = "get",
+                    type = "tic_tac_toe_games",
+                    familyId = session.familyId
+                )
+                
+                val gamesData = if (response.isSuccessful && response.body()?.success == true) {
+                    val dataJson = response.body()?.data as? Map<*, *>
+                    if (dataJson != null && dataJson.containsKey("games")) {
+                        val gamesMap = dataJson["games"] as? Map<*, *> ?: emptyMap<String, RemoteGameState>()
+                        val games = gamesMap.mapValues { (_, value) ->
+                            gson.fromJson(gson.toJson(value), RemoteGameState::class.java)
+                        } as Map<String, RemoteGameState>
+                        TicTacToeGamesData(games = games)
+                    } else {
+                        TicTacToeGamesData()
+                    }
+                } else {
+                    TicTacToeGamesData()
+                }
+                
+                // Update or add the game
+                val updatedGames = gamesData.games.toMutableMap()
+                updatedGames[remoteGameState.gameId] = remoteGameState.copy(
+                    lastUpdated = System.currentTimeMillis()
+                )
+                
+                val updatedData = TicTacToeGamesData(games = updatedGames)
+                val saveResponse = api.saveData(
+                    path = "data",
+                    action = "save",
+                    type = "tic_tac_toe_games",
+                    data = gson.toJsonTree(updatedData).asJsonObject.apply {
+                        addProperty("userId", session.userId)
+                    }
+                )
+                
+                if (saveResponse.isSuccessful) {
+                    Log.d(TAG, "Remote game state saved successfully via Apps Script")
+                    _uiState.value = _uiState.value.copy(lastSyncTime = System.currentTimeMillis())
+                } else {
+                    Log.e(TAG, "Failed to save remote game state: ${saveResponse.message()}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving remote game state", e)
+            }
+        }
+    }
+
+    private var isLoadingGameState = false
+    
+    private suspend fun loadRemoteGameState(gameId: String) {
+        // Prevent concurrent loads
+        if (isLoadingGameState) {
+            Log.d(TAG, "Already loading game state, skipping duplicate call")
+            return
+        }
+        
+        isLoadingGameState = true
+        try {
+            val session = sessionManager.loadSession() ?: return
+            
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            if (accessToken != null && folderId != null) {
+                try {
+                    Log.d(TAG, "Using direct Drive API to load remote game state")
+                    val fileName = "tic_tac_toe_games.json"
+                    
+                    val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+                    if (fileId != null) {
+                        val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                        val gamesData = gson.fromJson(jsonContent, TicTacToeGamesData::class.java)
+                            ?: TicTacToeGamesData()
+                        
+                        val remoteGameState = gamesData.games[gameId]
+                        if (remoteGameState != null) {
+                            applyRemoteGameState(remoteGameState)
+                            Log.d(TAG, "Remote game state loaded successfully via Drive API")
+                            return
+                        } else {
+                            Log.w(TAG, "Game $gameId not found in games data")
+                        }
+                    } else {
+                        Log.w(TAG, "tic_tac_toe_games.json not found in Drive")
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                }
+            } else {
+                Log.d(TAG, "No access token or folder ID available, using Apps Script")
+            }
+            
+            // Fallback to Apps Script
+            Log.d(TAG, "Falling back to Apps Script to load remote game state")
+            val response = api.getData(
+                path = "data",
+                action = "get",
+                type = "tic_tac_toe_games",
+                familyId = session.familyId
+            )
+            
+            if (response.isSuccessful && response.body()?.success == true) {
+                val dataJson = response.body()?.data as? Map<*, *>
+                if (dataJson != null && dataJson.containsKey("games")) {
+                    val gamesMap = dataJson["games"] as? Map<*, *> ?: emptyMap<String, RemoteGameState>()
+                    val gameJson = gamesMap[gameId] ?: return
+                    
+                    val remoteGameState = gson.fromJson(gson.toJson(gameJson), RemoteGameState::class.java)
+                    applyRemoteGameState(remoteGameState)
+                    Log.d(TAG, "Remote game state loaded successfully via Apps Script")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading remote game state", e)
+        } finally {
+            isLoadingGameState = false
+        }
+    }
+
+    private fun applyRemoteGameState(remoteGameState: RemoteGameState) {
+        val session = sessionManager.loadSession() ?: return
+        val currentUserId = session.userId
+        
+        val isPlayerX = remoteGameState.player1Id == currentUserId
+        val myPlayer = if (isPlayerX) "X" else "O"
+        val isMyTurn = remoteGameState.currentPlayer == myPlayer && !remoteGameState.isGameOver
+        
+        // Convert board from List<String?> to Array<Player?>
+        val board = Array(remoteGameState.boardSize * remoteGameState.boardSize) { index ->
+            when (remoteGameState.board.getOrNull(index)) {
+                "X" -> Player.X
+                "O" -> Player.O
+                else -> null
+            }
+        }
+        
+        Log.d(TAG, "Applying remote game state - gameId: ${remoteGameState.gameId}, boardSize: ${remoteGameState.boardSize}, moves: ${board.count { it != null }}, board: ${board.contentToString()}")
+        
+        val gameState = GameState(
+            boardSize = remoteGameState.boardSize,
+            board = board,
+            currentPlayer = if (remoteGameState.currentPlayer == "X") Player.X else Player.O,
+            playerXScore = remoteGameState.playerXScore,
+            playerOScore = remoteGameState.playerOScore
+        )
+        
+        val effectiveWinCondition = if (remoteGameState.winCondition > 0 && remoteGameState.winCondition <= remoteGameState.boardSize) 
+            remoteGameState.winCondition 
+        else 
+            remoteGameState.boardSize
+        
+        val winner = when (remoteGameState.winner) {
+            "X" -> Player.X
+            "O" -> Player.O
+            else -> null
+        }
+        
+        val showWinDialog = remoteGameState.isGameOver && winner != null
+        val showDrawDialog = remoteGameState.isGameOver && winner == null
+        
+        // Determine opponent info
+        val opponentUserId = if (isPlayerX) remoteGameState.player2Id else remoteGameState.player1Id
+        val opponentName = if (isPlayerX) remoteGameState.player2Name else remoteGameState.player1Name
+        
+        _uiState.value = _uiState.value.copy(
+            gameMode = GameMode.REMOTE_PLAY,
+            remoteGameId = remoteGameState.gameId,
+            opponentUserId = opponentUserId,
+            opponentName = opponentName,
+            gameState = gameState,
+            isMyTurn = isMyTurn,
+            isWaitingForOpponent = !isMyTurn && !remoteGameState.isGameOver,
+            showWinDialog = showWinDialog,
+            showDrawDialog = showDrawDialog,
+            showCelebration = showWinDialog && winner == (if (isPlayerX) Player.X else Player.O),
+            difficulty = remoteGameState.difficulty,
+            winCondition = remoteGameState.winCondition,
+            player1Name = remoteGameState.player1Name,
+            player2Name = remoteGameState.player2Name,
+            lastSyncTime = System.currentTimeMillis()
+        )
+        
+        // Stop any automatic polling - user must manually refresh
+        stopPolling()
+    }
+
+    private var pollingJob: kotlinx.coroutines.Job? = null
+    
+    // Polling is disabled - user must manually refresh
+    // Keeping function for potential future use
+    @Suppress("UNUSED")
+    private fun startPollingForOpponentMove() {
+        // Polling disabled - user must manually refresh
+    }
+    
+    private fun stopPolling() {
+        pollingJob?.cancel()
+        pollingJob = null
+    }
+
+    private fun makeRemoteMove(index: Int, player: Player) {
+        val currentState = _uiState.value
+        val gameId = currentState.remoteGameId ?: return
+        val session = sessionManager.loadSession() ?: return
+        
+        // Make the move locally first
+        val effectiveWinCondition = if (currentState.winCondition > 0 && currentState.winCondition <= currentState.gameState.boardSize) 
+            currentState.winCondition 
+        else 
+            currentState.gameState.boardSize
+        
+        val newState = currentState.gameState.makeMove(index, player, skipWinnerCheck = false, winCondition = effectiveWinCondition)
+        val winner = newState.checkWinner(winCondition = effectiveWinCondition)
+        val isGameOver = winner != null || newState.isBoardFull()
+        
+        // Convert to remote game state
+        val board = newState.board.map { p -> when (p) {
+            Player.X -> "X"
+            Player.O -> "O"
+            null -> null
+        }}
+        
+        // Determine player IDs (alphabetically, same as in startRemoteGame)
+        val currentUserId = session.userId
+        val opponentUserId = currentState.opponentUserId ?: return
+        val isPlayerX = currentUserId < opponentUserId
+        val player1Id = if (isPlayerX) currentUserId else opponentUserId
+        val player2Id = if (isPlayerX) opponentUserId else currentUserId
+        
+        val remoteGameState = RemoteGameState(
+            gameId = gameId,
+            player1Id = player1Id,
+            player1Name = currentState.player1Name,
+            player2Id = player2Id,
+            player2Name = currentState.player2Name,
+            boardSize = newState.boardSize,
+            board = board,
+            currentPlayer = if (newState.currentPlayer == Player.X) "X" else "O",
+            playerXScore = newState.playerXScore,
+            playerOScore = newState.playerOScore,
+            difficulty = currentState.difficulty,
+            winCondition = effectiveWinCondition,
+            isGameOver = isGameOver,
+            winner = when (winner) {
+                Player.X -> "X"
+                Player.O -> "O"
+                null -> null
+            },
+            createdAt = currentState.lastSyncTime,
+            lastUpdated = System.currentTimeMillis()
+        )
+        
+        saveRemoteGameState(remoteGameState)
+        
+        // Update local state
+        _uiState.value = currentState.copy(
+            gameState = newState,
+            isMyTurn = false,
+            isWaitingForOpponent = !isGameOver,
+            showWinDialog = isGameOver && winner != null,
+            showDrawDialog = isGameOver && winner == null,
+            showCelebration = isGameOver && winner == Player.X
+        )
+        
+        // Don't start automatic polling - user must click refresh to check for opponent moves
     }
 }

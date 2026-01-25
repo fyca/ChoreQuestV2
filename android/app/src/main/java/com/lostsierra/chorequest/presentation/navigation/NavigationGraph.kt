@@ -29,6 +29,8 @@ import com.lostsierra.chorequest.presentation.games.ChoreQuizScreen
 import com.lostsierra.chorequest.presentation.games.MemoryMatchScreen
 import com.lostsierra.chorequest.presentation.games.RockPaperScissorsScreen
 import com.lostsierra.chorequest.presentation.games.JigsawPuzzleScreen
+import com.lostsierra.chorequest.presentation.games.SnakeGameScreen
+import com.lostsierra.chorequest.presentation.games.BreakoutGameScreen
 import com.lostsierra.chorequest.data.local.SessionManager
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -331,6 +333,12 @@ fun NavigationGraph(
                 },
                 onNavigateToJigsawPuzzle = {
                     navController.navigate(NavigationRoutes.JigsawPuzzle.route)
+                },
+                onNavigateToSnakeGame = {
+                    navController.navigate(NavigationRoutes.SnakeGame.route)
+                },
+                onNavigateToBreakoutGame = {
+                    navController.navigate(NavigationRoutes.BreakoutGame.route)
                 }
             )
         }
@@ -361,6 +369,18 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.JigsawPuzzle.route) {
             JigsawPuzzleScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavigationRoutes.SnakeGame.route) {
+            SnakeGameScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavigationRoutes.BreakoutGame.route) {
+            BreakoutGameScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

@@ -65,4 +65,6 @@ sealed class NavigationRoutes(val route: String) {
     object MemoryMatch : NavigationRoutes("memory_match")
     object RockPaperScissors : NavigationRoutes("rock_paper_scissors")
     object JigsawPuzzle : NavigationRoutes("jigsaw_puzzle")
+    object SnakeGame : NavigationRoutes("snake_game")
+    object BreakoutGame : NavigationRoutes("breakout_game")
 }

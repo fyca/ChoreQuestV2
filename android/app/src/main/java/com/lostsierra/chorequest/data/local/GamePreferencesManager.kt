@@ -32,6 +32,14 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_SOUND_ENABLED = "sound_enabled"
         private const val KEY_TIC_TAC_TOE_FLIP_MODE = "tic_tac_toe_flip_mode" // "single" or "entire"
         private const val KEY_TIC_TAC_TOE_WIN_CONDITION = "tic_tac_toe_win_condition" // 3, 4, or 5
+        private const val KEY_SNAKE_GAME_HIGH_SCORE = "snake_game_high_score"
+        private const val KEY_SNAKE_GAME_DIFFICULTY = "snake_game_difficulty"
+        private const val KEY_SNAKE_GAME_SAVED_STATE = "snake_game_saved_state"
+        private const val KEY_SNAKE_GAME_HAS_SAVED_GAME = "snake_game_has_saved_game"
+        private const val KEY_BREAKOUT_GAME_HIGH_SCORE = "breakout_game_high_score"
+        private const val KEY_BREAKOUT_GAME_DIFFICULTY = "breakout_game_difficulty"
+        private const val KEY_BREAKOUT_GAME_SAVED_STATE = "breakout_game_saved_state"
+        private const val KEY_BREAKOUT_GAME_HAS_SAVED_GAME = "breakout_game_has_saved_game"
     }
 
     // Tic-Tac-Toe High Score
@@ -187,5 +195,99 @@ class GamePreferencesManager @Inject constructor(
 
     fun saveTicTacToeWinCondition(winCondition: Int) {
         sharedPreferences.edit().putInt(KEY_TIC_TAC_TOE_WIN_CONDITION, winCondition).apply()
+    }
+
+    // Snake Game High Score
+    fun getSnakeGameHighScore(): Int {
+        return sharedPreferences.getInt(KEY_SNAKE_GAME_HIGH_SCORE, 0)
+    }
+
+    fun saveSnakeGameHighScore(score: Int) {
+        sharedPreferences.edit().putInt(KEY_SNAKE_GAME_HIGH_SCORE, score).apply()
+    }
+
+    // Snake Game Difficulty
+    fun getSnakeGameDifficulty(): String {
+        return sharedPreferences.getString(KEY_SNAKE_GAME_DIFFICULTY, "medium") ?: "medium"
+    }
+
+    fun saveSnakeGameDifficulty(difficulty: String) {
+        sharedPreferences.edit().putString(KEY_SNAKE_GAME_DIFFICULTY, difficulty).apply()
+    }
+
+    // Snake Game Saved Game State
+    fun hasSavedSnakeGame(): Boolean {
+        return sharedPreferences.getBoolean(KEY_SNAKE_GAME_HAS_SAVED_GAME, false)
+    }
+
+    fun saveSnakeGameState(savedStateJson: String) {
+        android.util.Log.d("GamePreferencesManager", "saveSnakeGameState() called - state length: ${savedStateJson.length}")
+        sharedPreferences.edit()
+            .putString(KEY_SNAKE_GAME_SAVED_STATE, savedStateJson)
+            .putBoolean(KEY_SNAKE_GAME_HAS_SAVED_GAME, true)
+            .apply()
+        android.util.Log.d("GamePreferencesManager", "saveSnakeGameState() completed - hasSavedGame: ${hasSavedSnakeGame()}")
+    }
+
+    fun getSnakeGameSavedState(): String? {
+        return if (hasSavedSnakeGame()) {
+            sharedPreferences.getString(KEY_SNAKE_GAME_SAVED_STATE, null)
+        } else {
+            null
+        }
+    }
+
+    fun clearSnakeGameSavedState() {
+        sharedPreferences.edit()
+            .remove(KEY_SNAKE_GAME_SAVED_STATE)
+            .putBoolean(KEY_SNAKE_GAME_HAS_SAVED_GAME, false)
+            .apply()
+    }
+
+    // Breakout Game High Score
+    fun getBreakoutGameHighScore(): Int {
+        return sharedPreferences.getInt(KEY_BREAKOUT_GAME_HIGH_SCORE, 0)
+    }
+
+    fun saveBreakoutGameHighScore(score: Int) {
+        sharedPreferences.edit().putInt(KEY_BREAKOUT_GAME_HIGH_SCORE, score).apply()
+    }
+
+    // Breakout Game Difficulty
+    fun getBreakoutGameDifficulty(): String {
+        return sharedPreferences.getString(KEY_BREAKOUT_GAME_DIFFICULTY, "medium") ?: "medium"
+    }
+
+    fun saveBreakoutGameDifficulty(difficulty: String) {
+        sharedPreferences.edit().putString(KEY_BREAKOUT_GAME_DIFFICULTY, difficulty).apply()
+    }
+
+    // Breakout Game Saved Game State
+    fun hasSavedBreakoutGame(): Boolean {
+        return sharedPreferences.getBoolean(KEY_BREAKOUT_GAME_HAS_SAVED_GAME, false)
+    }
+
+    fun saveBreakoutGameState(savedStateJson: String) {
+        android.util.Log.d("GamePreferencesManager", "saveBreakoutGameState() called - state length: ${savedStateJson.length}")
+        sharedPreferences.edit()
+            .putString(KEY_BREAKOUT_GAME_SAVED_STATE, savedStateJson)
+            .putBoolean(KEY_BREAKOUT_GAME_HAS_SAVED_GAME, true)
+            .apply()
+        android.util.Log.d("GamePreferencesManager", "saveBreakoutGameState() completed - hasSavedGame: ${hasSavedBreakoutGame()}")
+    }
+
+    fun getBreakoutGameSavedState(): String? {
+        return if (hasSavedBreakoutGame()) {
+            sharedPreferences.getString(KEY_BREAKOUT_GAME_SAVED_STATE, null)
+        } else {
+            null
+        }
+    }
+
+    fun clearBreakoutGameSavedState() {
+        sharedPreferences.edit()
+            .remove(KEY_BREAKOUT_GAME_SAVED_STATE)
+            .putBoolean(KEY_BREAKOUT_GAME_HAS_SAVED_GAME, false)
+            .apply()
     }
 }

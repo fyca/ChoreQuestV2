@@ -3,6 +3,8 @@ package com.lostsierra.chorequest.presentation.navigation
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -41,8 +43,22 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun NavigationGraph(
     navController: NavHostController,
-    startDestination: String = NavigationRoutes.Login.route
+    startDestination: String = NavigationRoutes.Login.route,
+    initialGameId: String? = null
 ) {
+    // Navigate to TicTacToe if gameId is provided
+    androidx.compose.runtime.LaunchedEffect(initialGameId) {
+        if (initialGameId != null) {
+            // Navigate to games screen first, then to TicTacToe
+            navController.navigate(NavigationRoutes.Games.route) {
+                popUpTo(NavigationRoutes.Login.route) { inclusive = false }
+            }
+            // Small delay to ensure Games screen is loaded
+            kotlinx.coroutines.delay(100)
+            navController.navigate(NavigationRoutes.TicTacToe.route)
+        }
+    }
+    
     NavHost(
         navController = navController,
         startDestination = startDestination
@@ -351,8 +367,22 @@ fun NavigationGraph(
         }
 
         composable(NavigationRoutes.TicTacToe.route) {
+            val viewModel: com.lostsierra.chorequest.presentation.games.TicTacToeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+            val gameId = remember { initialGameId }
+            
+            // Set pending game ID if provided (only from notifications)
+            // Clear it after setting to prevent it from persisting
+            LaunchedEffect(gameId) {
+                if (gameId != null) {
+                    viewModel.setPendingGameId(gameId)
+                    // Clear initialGameId after setting it so it doesn't persist
+                    // Note: We can't modify initialGameId here, but the screen will handle it
+                }
+            }
+            
             TicTacToeScreen(
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                viewModel = viewModel
             )
         }
 

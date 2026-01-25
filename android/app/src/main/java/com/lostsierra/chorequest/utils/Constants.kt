@@ -114,6 +114,7 @@ object Constants {
         const val POINTS_EARNED = "points_earned"
         const val POINTS_AWARDED = "points_awarded"
         const val REWARD_REDEEMED = "reward_redeemed"
+        const val GAME_MOVE = "game_move"
     }
     
     // Notification Channels
@@ -124,6 +125,7 @@ object Constants {
         const val POINTS_UPDATES = "points_updates"
         const val REWARDS_CHANNEL_ID = "rewards_channel"
         const val SYNC_CHANNEL_ID = "sync_channel"
+        const val GAME_UPDATES = "game_updates"
     }
     
     // App Version

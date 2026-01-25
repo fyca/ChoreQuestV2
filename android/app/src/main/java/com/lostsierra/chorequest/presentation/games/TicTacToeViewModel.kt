@@ -51,6 +51,7 @@ data class TicTacToeUiState(
     val lastSyncTime: Long = 0L, // Timestamp of last sync for polling
     val availableGames: List<RemoteGameState> = emptyList(), // In-progress games available to resume
     val showGameSelectionDialog: Boolean = false, // Show dialog to select existing game or start new
+    val showAllGamesDialog: Boolean = false, // Show dialog with all active games on screen load
     val pendingOpponentUserId: String? = null, // Opponent ID pending game selection
     val pendingOpponentName: String? = null // Opponent name pending game selection
 )
@@ -88,12 +89,38 @@ class TicTacToeViewModel @Inject constructor(
     private val api: ChoreQuestApi,
     private val gson: Gson,
     private val driveApiService: com.lostsierra.chorequest.data.drive.DriveApiService,
-    private val tokenManager: com.lostsierra.chorequest.data.drive.TokenManager
+    private val tokenManager: com.lostsierra.chorequest.data.drive.TokenManager,
+    private val notificationManager: com.lostsierra.chorequest.services.NotificationManager,
+    private val appPreferencesManager: com.lostsierra.chorequest.data.local.AppPreferencesManager
 ) : ViewModel() {
     
     companion object {
         private const val TAG = "TicTacToeViewModel"
         private const val POLL_INTERVAL_MS = 3000L // Poll every 3 seconds (currently disabled - manual refresh only)
+        private const val PREF_PENDING_GAME_ID = "pending_game_id"
+    }
+    
+    private var pendingGameId: String? = null
+    
+    /**
+     * Get pending game ID from notification intent
+     */
+    fun getPendingGameId(): String? {
+        return pendingGameId
+    }
+    
+    /**
+     * Clear pending game ID after resuming
+     */
+    fun clearPendingGameId() {
+        pendingGameId = null
+    }
+    
+    /**
+     * Set pending game ID from notification
+     */
+    fun setPendingGameId(gameId: String) {
+        pendingGameId = gameId
     }
     
     override fun onCleared() {
@@ -577,15 +604,67 @@ class TicTacToeViewModel @Inject constructor(
 
     fun dismissWinDialog() {
         val currentState = _uiState.value
+        // Mark game result as viewed so dialog doesn't show again
+        currentState.remoteGameId?.let { gameId ->
+            appPreferencesManager.markGameResultViewed(gameId)
+        }
+        
+        // If game is over and in remote play mode, clear remote game state
+        // so it doesn't reload when screen is reopened
+        val shouldClearRemoteGame = currentState.gameMode == GameMode.REMOTE_PLAY && 
+                                    (currentState.showWinDialog || currentState.showDrawDialog)
+        
         _uiState.value = currentState.copy(
             showWinDialog = false,
-            showCelebration = false // Also clear celebration when dismissing
+            showCelebration = false, // Also clear celebration when dismissing
+            // Clear remote game state if game is over
+            remoteGameId = if (shouldClearRemoteGame) null else currentState.remoteGameId,
+            opponentUserId = if (shouldClearRemoteGame) null else currentState.opponentUserId,
+            opponentName = if (shouldClearRemoteGame) null else currentState.opponentName,
+            isWaitingForOpponent = if (shouldClearRemoteGame) false else currentState.isWaitingForOpponent,
+            isMyTurn = if (shouldClearRemoteGame) true else currentState.isMyTurn
         )
     }
 
     fun dismissDrawDialog() {
         val currentState = _uiState.value
-        _uiState.value = currentState.copy(showDrawDialog = false)
+        // Mark game result as viewed so dialog doesn't show again
+        currentState.remoteGameId?.let { gameId ->
+            appPreferencesManager.markGameResultViewed(gameId)
+        }
+        
+        // If game is over and in remote play mode, clear remote game state
+        // so it doesn't reload when screen is reopened
+        val shouldClearRemoteGame = currentState.gameMode == GameMode.REMOTE_PLAY && 
+                                    (currentState.showWinDialog || currentState.showDrawDialog)
+        
+        _uiState.value = currentState.copy(
+            showDrawDialog = false,
+            // Clear remote game state if game is over
+            remoteGameId = if (shouldClearRemoteGame) null else currentState.remoteGameId,
+            opponentUserId = if (shouldClearRemoteGame) null else currentState.opponentUserId,
+            opponentName = if (shouldClearRemoteGame) null else currentState.opponentName,
+            isWaitingForOpponent = if (shouldClearRemoteGame) false else currentState.isWaitingForOpponent,
+            isMyTurn = if (shouldClearRemoteGame) true else currentState.isMyTurn
+        )
+    }
+    
+    /**
+     * Clear remote game state (used when game is completed and viewed, or when screen opens)
+     */
+    fun clearRemoteGameState() {
+        val currentState = _uiState.value
+        // Always clear remote game state
+        _uiState.value = currentState.copy(
+            remoteGameId = null,
+            opponentUserId = null,
+            opponentName = null,
+            isWaitingForOpponent = false,
+            isMyTurn = true,
+            showWinDialog = false,
+            showDrawDialog = false,
+            showCelebration = false
+        )
     }
 
     fun onCelebrationComplete() {
@@ -688,7 +767,9 @@ class TicTacToeViewModel @Inject constructor(
     
     fun resumeRemoteGame(gameId: String) {
         viewModelScope.launch {
+            // Load the game state - we'll check if it's completed and viewed inside loadRemoteGameState
             loadRemoteGameState(gameId)
+            
             // Clear the selection dialog state after loading
             val updatedState = _uiState.value
             _uiState.value = updatedState.copy(
@@ -723,6 +804,94 @@ class TicTacToeViewModel @Inject constructor(
             availableGames = emptyList(),
             pendingOpponentUserId = null,
             pendingOpponentName = null
+        )
+    }
+    
+    /**
+     * Load all active games for the current user
+     */
+    fun loadAllActiveGames() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val session = sessionManager.loadSession() ?: return@launch
+                val currentUserId = session.userId
+                
+                // Try direct Drive API first
+                val accessToken = tokenManager.getValidAccessToken()
+                val folderId = session.driveWorkbookLink
+                
+                val gamesData = if (accessToken != null && folderId != null) {
+                    try {
+                        Log.d(TAG, "Using direct Drive API to load all active games")
+                        val fileName = "tic_tac_toe_games.json"
+                        
+                        val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+                        if (fileId != null) {
+                            val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                            gson.fromJson(jsonContent, TicTacToeGamesData::class.java)
+                                ?: TicTacToeGamesData()
+                        } else {
+                            TicTacToeGamesData()
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error using direct Drive API, falling back to Apps Script", e)
+                        null
+                    }
+                } else {
+                    null
+                } ?: run {
+                    // Fallback to Apps Script
+                    Log.d(TAG, "Falling back to Apps Script to load all active games")
+                    val response = api.getData(
+                        path = "data",
+                        action = "get",
+                        type = "tic_tac_toe_games",
+                        familyId = session.familyId
+                    )
+                    
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        val dataJson = response.body()?.data as? Map<*, *>
+                        if (dataJson != null && dataJson.containsKey("games")) {
+                            val gamesMap = dataJson["games"] as? Map<*, *> ?: emptyMap<String, RemoteGameState>()
+                            val games = gamesMap.mapValues { (_, value) ->
+                                gson.fromJson(gson.toJson(value), RemoteGameState::class.java)
+                            } as Map<String, RemoteGameState>
+                            TicTacToeGamesData(games = games)
+                        } else {
+                            TicTacToeGamesData()
+                        }
+                    } else {
+                        TicTacToeGamesData()
+                    }
+                }
+                
+                // Filter games where current user is a player, game is not over, and result hasn't been viewed
+                val activeGames = gamesData.games.values.filter { game ->
+                    val isPlayerInGame = game.player1Id == currentUserId || game.player2Id == currentUserId
+                    val isNotOver = !game.isGameOver
+                    val notViewed = !appPreferencesManager.isGameResultViewed(game.gameId)
+                    isPlayerInGame && isNotOver && notViewed
+                }.sortedByDescending { it.lastUpdated } // Most recent first
+                
+                withContext(Dispatchers.Main) {
+                    if (activeGames.isNotEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            availableGames = activeGames,
+                            showAllGamesDialog = true
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading all active games", e)
+            }
+        }
+    }
+    
+    fun dismissAllGamesDialog() {
+        val currentState = _uiState.value
+        _uiState.value = currentState.copy(
+            showAllGamesDialog = false,
+            availableGames = emptyList()
         )
     }
     
@@ -1005,6 +1174,13 @@ class TicTacToeViewModel @Inject constructor(
                         
                         val remoteGameState = gamesData.games[gameId]
                         if (remoteGameState != null) {
+                            // Check if game is completed and viewed - don't load if so
+                            if (remoteGameState.isGameOver && appPreferencesManager.isGameResultViewed(gameId)) {
+                                Log.d(TAG, "Game $gameId is completed and viewed, not loading")
+                                clearRemoteGameState()
+                                loadAllActiveGames()
+                                return
+                            }
                             applyRemoteGameState(remoteGameState)
                             Log.d(TAG, "Remote game state loaded successfully via Drive API")
                             return
@@ -1039,6 +1215,13 @@ class TicTacToeViewModel @Inject constructor(
                     val gameJson = gamesMap[gameId] ?: return
                     
                     val remoteGameState = gson.fromJson(gson.toJson(gameJson), RemoteGameState::class.java)
+                    // Check if game is completed and viewed - don't load if so
+                    if (remoteGameState.isGameOver && appPreferencesManager.isGameResultViewed(gameId)) {
+                        Log.d(TAG, "Game $gameId is completed and viewed, not loading")
+                        clearRemoteGameState()
+                        loadAllActiveGames()
+                        return
+                    }
                     applyRemoteGameState(remoteGameState)
                     Log.d(TAG, "Remote game state loaded successfully via Apps Script")
                 }
@@ -1088,8 +1271,10 @@ class TicTacToeViewModel @Inject constructor(
             else -> null
         }
         
-        val showWinDialog = remoteGameState.isGameOver && winner != null
-        val showDrawDialog = remoteGameState.isGameOver && winner == null
+        // Check if game result has been viewed (don't show dialog again if already viewed)
+        val gameResultViewed = appPreferencesManager.isGameResultViewed(remoteGameState.gameId)
+        val showWinDialog = remoteGameState.isGameOver && winner != null && !gameResultViewed
+        val showDrawDialog = remoteGameState.isGameOver && winner == null && !gameResultViewed
         
         // Determine opponent info
         val opponentUserId = if (isPlayerX) remoteGameState.player2Id else remoteGameState.player1Id

@@ -77,12 +77,132 @@ class SyncRepository @Inject constructor(
             syncRewards(familyId)
             syncUsers(familyId)
             syncActivityLogs(familyId)
+            syncGames(familyId) // Check for game move notifications
 
             Log.i(TAG, "Background sync completed successfully")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Sync failed", e)
             false
+        }
+    }
+    
+    /**
+     * Syncs games and checks for move notifications
+     * Games are stored remotely, so we just check for changes to trigger notifications
+     */
+    private suspend fun syncGames(familyId: String) {
+        try {
+            Log.d(TAG, "Starting game sync for family $familyId")
+            val session = authRepository.getCurrentSession()
+            if (session == null) {
+                Log.w(TAG, "No session for syncing games")
+                return
+            }
+            
+            // Load previous games from SharedPreferences
+            val prefs = appPreferencesManager.getSharedPreferences()
+            val previousGamesJson = prefs.getString("previous_games_state", null)
+            val previousGames = if (previousGamesJson != null) {
+                try {
+                    val gamesData = gson.fromJson(previousGamesJson, com.lostsierra.chorequest.presentation.games.TicTacToeGamesData::class.java)
+                    Log.d(TAG, "Loaded ${gamesData.games.size} previous games from cache")
+                    gamesData.games
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error parsing previous games state", e)
+                    emptyMap()
+                }
+            } else {
+                Log.d(TAG, "No previous games state found - first sync")
+                emptyMap()
+            }
+            
+            // Try direct Drive API first
+            val accessToken = tokenManager.getValidAccessToken()
+            val folderId = session.driveWorkbookLink
+            
+            var currentGames: Map<String, com.lostsierra.chorequest.presentation.games.RemoteGameState> = emptyMap()
+            var driveApiSucceeded = false
+            
+            if (accessToken != null && folderId != null) {
+                try {
+                    Log.d(TAG, "Loading games from Drive API")
+                    val fileName = "tic_tac_toe_games.json"
+                    val fileId = driveApiService.findFileByName(accessToken, folderId, fileName)
+                    if (fileId != null) {
+                        val jsonContent = driveApiService.readFileContent(accessToken, fileId)
+                        val gamesData = gson.fromJson(jsonContent, com.lostsierra.chorequest.presentation.games.TicTacToeGamesData::class.java)
+                        currentGames = gamesData.games
+                        driveApiSucceeded = true
+                        Log.d(TAG, "Loaded ${currentGames.size} games from Drive API")
+                    } else {
+                        Log.d(TAG, "Games file not found in Drive, will try Apps Script")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error loading games from Drive", e)
+                }
+            } else {
+                Log.d(TAG, "No access token or folder ID, using Apps Script")
+            }
+            
+            // Fallback to Apps Script only if Drive API didn't succeed
+            val finalGames = if (!driveApiSucceeded) {
+                try {
+                    Log.d(TAG, "Loading games from Apps Script")
+                    val response = api.getData(
+                        path = "data",
+                        action = "get",
+                        type = "tic_tac_toe_games",
+                        familyId = familyId
+                    )
+                    
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        val dataJson = response.body()?.data as? Map<*, *>
+                        if (dataJson != null && dataJson.containsKey("games")) {
+                            val gamesMap = dataJson["games"] as? Map<*, *> ?: emptyMap<String, Any>()
+                            val parsedGames = gamesMap.mapNotNull { (key, value) ->
+                                val keyString = key?.toString() ?: return@mapNotNull null
+                                val gameState = try {
+                                    gson.fromJson(gson.toJson(value), com.lostsierra.chorequest.presentation.games.RemoteGameState::class.java)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error parsing game state for key $keyString", e)
+                                    return@mapNotNull null
+                                }
+                                keyString to gameState
+                            }.toMap()
+                            Log.d(TAG, "Loaded ${parsedGames.size} games from Apps Script")
+                            parsedGames
+                        } else {
+                            Log.d(TAG, "No games found in Apps Script response")
+                            emptyMap()
+                        }
+                    } else {
+                        val errorBody = response.errorBody()?.string()
+                        Log.w(TAG, "Apps Script request failed: $errorBody")
+                        emptyMap()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error loading games from Apps Script", e)
+                    emptyMap()
+                }
+            } else {
+                currentGames
+            }
+            
+            Log.d(TAG, "Checking notifications: previous=${previousGames.size}, current=${finalGames.size}")
+            
+            // Check for notifications
+            notificationManager.checkAndDisplayGameNotifications(previousGames, finalGames)
+            
+            // Store current games as previous for next sync
+            val currentGamesData = com.lostsierra.chorequest.presentation.games.TicTacToeGamesData(games = finalGames)
+            val currentGamesJson = gson.toJson(currentGamesData)
+            prefs.edit().putString("previous_games_state", currentGamesJson).apply()
+            
+            Log.i(TAG, "Game sync completed: ${finalGames.size} games synced, notifications checked")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing games", e)
+            // Don't throw - allow other syncs to continue
         }
     }
 

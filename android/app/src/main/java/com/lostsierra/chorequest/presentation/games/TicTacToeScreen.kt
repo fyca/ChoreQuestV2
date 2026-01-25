@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Tic-Tac-Toe game screen with difficulty levels, sound effects, high scores, and celebrations
@@ -48,6 +49,36 @@ fun TicTacToeScreen(
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showGameModeDialog by remember { mutableStateOf(false) }
     var showOpponentDialog by remember { mutableStateOf(false) }
+    
+    val context = LocalContext.current
+    
+    // Track if we've initialized to prevent multiple calls
+    var hasInitialized by remember { mutableStateOf(false) }
+    
+    // Clear any existing remote game state and show active games dialog on screen open
+    // Only auto-load if there's a pending game ID from a notification
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (hasInitialized) return@LaunchedEffect
+        hasInitialized = true
+        
+        // Always clear any existing remote game state first to prevent auto-loading
+        // This ensures we don't auto-load games from previous sessions
+        viewModel.clearRemoteGameState()
+        
+        // Small delay to ensure state is cleared before checking pending game ID
+        kotlinx.coroutines.delay(50)
+        
+        val gameId = viewModel.getPendingGameId()
+        
+        // If there's a pending game ID from notification, load it directly
+        if (gameId != null) {
+            viewModel.resumeRemoteGame(gameId)
+            viewModel.clearPendingGameId()
+        } else {
+            // Otherwise, show the active games dialog
+            viewModel.loadAllActiveGames()
+        }
+    }
 
     // Celebration animation
     if (uiState.showCelebration) {
@@ -212,7 +243,10 @@ fun TicTacToeScreen(
             WinDrawDialog(
                 title = "🎉 $winnerName Wins! 🎉",
                 message = message,
-                onDismiss = { viewModel.dismissWinDialog() },
+                onDismiss = { 
+                    viewModel.dismissWinDialog()
+                    viewModel.newGame()
+                },
                 onPlayAgain = { viewModel.newGame() },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -225,7 +259,10 @@ fun TicTacToeScreen(
             WinDrawDialog(
                 title = "🤝 It's a Draw!",
                 message = "Good game! Try again!",
-                onDismiss = { viewModel.dismissDrawDialog() },
+                onDismiss = { 
+                    viewModel.dismissDrawDialog()
+                    viewModel.newGame()
+                },
                 onPlayAgain = { viewModel.newGame() },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -311,6 +348,25 @@ fun TicTacToeScreen(
             },
             onDismiss = {
                 viewModel.dismissGameSelectionDialog()
+            },
+            viewModel = viewModel
+        )
+    }
+    
+    // All active games dialog (shown when screen opens)
+    if (uiState.showAllGamesDialog) {
+        AllActiveGamesDialog(
+            availableGames = uiState.availableGames,
+            onGameSelected = { gameId ->
+                viewModel.resumeRemoteGame(gameId)
+                viewModel.dismissAllGamesDialog()
+            },
+            onStartNewGame = {
+                viewModel.dismissAllGamesDialog()
+                showGameModeDialog = true
+            },
+            onDismiss = {
+                viewModel.dismissAllGamesDialog()
             },
             viewModel = viewModel
         )
@@ -1890,6 +1946,65 @@ private fun RemoteGameSelectionDialog(
 }
 
 @Composable
+private fun AllActiveGamesDialog(
+    availableGames: List<RemoteGameState>,
+    onGameSelected: (String) -> Unit,
+    onStartNewGame: () -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: TicTacToeViewModel
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text("Active Games")
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (availableGames.isEmpty()) {
+                    Text("No active games")
+                } else {
+                    Text(
+                        text = "Select a game to continue:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    availableGames.forEach { game ->
+                        RemoteGameOption(
+                            game = game,
+                            currentUserId = viewModel.sessionManager.loadSession()?.userId ?: "",
+                            onClick = { onGameSelected(game.gameId) }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                Button(
+                    onClick = onStartNewGame,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Start New Game")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
 private fun RemoteGameOption(
     game: RemoteGameState,
     currentUserId: String,
@@ -1936,12 +2051,18 @@ private fun RemoteGameOption(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (isMyTurn) "Your turn ($myPlayer)" else "$opponentPlayer's turn",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isMyTurn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Column {
+                    Text(
+                        text = if (isPlayerX) game.player2Name else game.player1Name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isMyTurn) "Your turn ($myPlayer)" else "$opponentPlayer's turn",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isMyTurn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Text(
                     text = timeAgo,
                     style = MaterialTheme.typography.bodySmall,

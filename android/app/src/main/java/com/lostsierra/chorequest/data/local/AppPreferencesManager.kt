@@ -35,4 +35,27 @@ class AppPreferencesManager @Inject constructor(
         val validMinutes = minutes.coerceAtLeast(1L)
         sharedPreferences.edit().putLong(KEY_SYNC_INTERVAL_MINUTES, validMinutes).apply()
     }
+    
+    /**
+     * Get SharedPreferences instance for storing temporary data
+     */
+    fun getSharedPreferences(): SharedPreferences {
+        return sharedPreferences
+    }
+    
+    /**
+     * Mark a game result as viewed (so win/loss dialog doesn't show again)
+     */
+    fun markGameResultViewed(gameId: String) {
+        sharedPreferences.edit()
+            .putBoolean("game_result_viewed_$gameId", true)
+            .apply()
+    }
+    
+    /**
+     * Check if a game result has been viewed
+     */
+    fun isGameResultViewed(gameId: String): Boolean {
+        return sharedPreferences.getBoolean("game_result_viewed_$gameId", false)
+    }
 }

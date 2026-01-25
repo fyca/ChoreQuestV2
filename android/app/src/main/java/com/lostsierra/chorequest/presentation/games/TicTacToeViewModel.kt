@@ -806,6 +806,7 @@ class TicTacToeViewModel @Inject constructor(
     fun startRemoteGame(opponentUserId: String, opponentName: String) {
         val session = sessionManager.loadSession() ?: return
         val currentUserId = session.userId
+        val currentUserName = session.userName // Get actual user name from session
         
         val gameId = UUID.randomUUID().toString()
         val currentState = _uiState.value
@@ -813,9 +814,9 @@ class TicTacToeViewModel @Inject constructor(
         // Determine which player is X and which is O (alphabetically by user ID)
         val isPlayerX = currentUserId < opponentUserId
         val player1Id = if (isPlayerX) currentUserId else opponentUserId
-        val player1Name = if (isPlayerX) "You" else opponentName
+        val player1Name = if (isPlayerX) currentUserName else opponentName
         val player2Id = if (isPlayerX) opponentUserId else currentUserId
-        val player2Name = if (isPlayerX) opponentName else "You"
+        val player2Name = if (isPlayerX) opponentName else currentUserName
         
         val boardSize = getBoardSize(currentState.difficulty)
         val remoteGameState = RemoteGameState(
@@ -1184,6 +1185,12 @@ class TicTacToeViewModel @Inject constructor(
         
         saveRemoteGameState(remoteGameState)
         
+        // Determine if current user won
+        val currentUserWon = when {
+            isPlayerX -> winner == Player.X
+            else -> winner == Player.O
+        }
+        
         // Update local state
         _uiState.value = currentState.copy(
             gameState = newState,
@@ -1191,7 +1198,7 @@ class TicTacToeViewModel @Inject constructor(
             isWaitingForOpponent = !isGameOver,
             showWinDialog = isGameOver && winner != null,
             showDrawDialog = isGameOver && winner == null,
-            showCelebration = isGameOver && winner == Player.X
+            showCelebration = isGameOver && currentUserWon
         )
         
         // Don't start automatic polling - user must click refresh to check for opponent moves

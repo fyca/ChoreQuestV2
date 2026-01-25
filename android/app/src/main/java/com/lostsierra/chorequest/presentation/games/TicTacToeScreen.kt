@@ -175,12 +175,43 @@ fun TicTacToeScreen(
                 uiState.gameState.boardSize
             val winner = uiState.gameState.checkWinner(winCondition = effectiveWinCondition)
             val winnerName = if (winner == Player.X) uiState.player1Name else uiState.player2Name
+            
+            // Determine message based on game mode
+            val message = when (uiState.gameMode) {
+                GameMode.REMOTE_PLAY -> {
+                    // In remote play, determine if current user won
+                    // Get current user's name from session to compare with winner
+                    val currentUserName = viewModel.sessionManager.loadSession()?.userName
+                    val currentUserWon = when {
+                        currentUserName == null -> uiState.showCelebration // Fallback to showCelebration if we can't get name
+                        winner == Player.X -> currentUserName == uiState.player1Name
+                        winner == Player.O -> currentUserName == uiState.player2Name
+                        else -> false
+                    }
+                    
+                    if (currentUserWon) {
+                        "Great job! You won!"
+                    } else {
+                        "$winnerName won! Better luck next time!"
+                    }
+                }
+                GameMode.AI -> {
+                    if (winner == Player.X) 
+                        "Great job! You won!" 
+                    else 
+                        "${uiState.player2Name} won! Better luck next time!"
+                }
+                GameMode.FAMILY_USER, GameMode.LOCAL_PLAYER -> {
+                    if (winner == Player.X) 
+                        "Great job! ${uiState.player1Name} won!" 
+                    else 
+                        "Great job! ${uiState.player2Name} won!"
+                }
+            }
+            
             WinDrawDialog(
                 title = "🎉 $winnerName Wins! 🎉",
-                message = if (winner == Player.X) 
-                    "Great job! You won!" 
-                else 
-                    "${uiState.player2Name} won! Better luck next time!",
+                message = message,
                 onDismiss = { viewModel.dismissWinDialog() },
                 onPlayAgain = { viewModel.newGame() },
                 modifier = Modifier
@@ -769,12 +800,25 @@ private fun GameStatusCard(
                 text = when {
                     gameMode == GameMode.REMOTE_PLAY -> {
                         val currentState = uiState
-                        if (currentState.isWaitingForOpponent) {
-                            "⏳ Waiting for $player2Name's move..."
-                        } else if (currentState.isMyTurn) {
-                            "✅ Your turn!"
-                        } else {
-                            "$player2Name's turn!"
+                        val opponentName = currentState.opponentName ?: player2Name
+                        
+                        // Determine which player's turn it is based on currentPlayer
+                        val turnPlayerName = if (currentPlayer == Player.X) player1Name else player2Name
+                        
+                        when {
+                            currentState.showWinDialog || currentState.showDrawDialog -> {
+                                "Game Over"
+                            }
+                            currentState.isMyTurn -> {
+                                "✅ Your turn!"
+                            }
+                            currentState.isWaitingForOpponent -> {
+                                "⏳ Waiting for $opponentName's move..."
+                            }
+                            else -> {
+                                // Show whose turn it is
+                                "$turnPlayerName's turn!"
+                            }
                         }
                     }
                     isAITurn && gameMode == GameMode.AI -> "🤖 AI is thinking..."

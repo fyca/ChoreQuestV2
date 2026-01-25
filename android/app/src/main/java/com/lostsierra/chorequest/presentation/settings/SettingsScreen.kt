@@ -23,6 +23,7 @@ import com.lostsierra.chorequest.presentation.components.ChoreQuestTopAppBar
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToProfile: () -> Unit,
+    onNavigateToUserList: () -> Unit = {},
     onLogout: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
@@ -66,6 +67,15 @@ fun SettingsScreen(
                     title = "Profile",
                     subtitle = "View and edit your profile",
                     onClick = onNavigateToProfile
+                )
+            }
+
+            item {
+                SettingsItem(
+                    icon = Icons.Default.People,
+                    title = "Family",
+                    subtitle = "Manage family members",
+                    onClick = onNavigateToUserList
                 )
             }
 

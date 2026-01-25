@@ -34,7 +34,6 @@ import kotlinx.coroutines.delay
 fun ParentDashboardScreen(
     onNavigateToChoreList: () -> Unit,
     onNavigateToRewardList: () -> Unit,
-    onNavigateToUserList: () -> Unit,
     onNavigateToActivityLog: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToLogin: () -> Unit,
@@ -87,7 +86,6 @@ fun ParentDashboardScreen(
                     when (route) {
                         "chore_list" -> onNavigateToChoreList()
                         "reward_list" -> onNavigateToRewardList()
-                        "user_list" -> onNavigateToUserList()
                         "games" -> onNavigateToGames()
                         "settings" -> onNavigateToSettings()
                     }

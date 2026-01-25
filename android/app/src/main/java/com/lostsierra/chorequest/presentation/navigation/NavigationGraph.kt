@@ -93,9 +93,6 @@ fun NavigationGraph(
                 onNavigateToRewardList = {
                     navController.navigate(NavigationRoutes.RewardList.route)
                 },
-                onNavigateToUserList = {
-                    navController.navigate(NavigationRoutes.UserList.route)
-                },
                 onNavigateToActivityLog = {
                     navController.navigate(NavigationRoutes.ActivityLog.route)
                 },
@@ -295,6 +292,9 @@ fun NavigationGraph(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToProfile = {
                     navController.navigate(NavigationRoutes.Profile.route)
+                },
+                onNavigateToUserList = {
+                    navController.navigate(NavigationRoutes.UserList.route)
                 },
                 onLogout = {
                     // Logout will be handled by LoginScreen with Google Sign-In sign out

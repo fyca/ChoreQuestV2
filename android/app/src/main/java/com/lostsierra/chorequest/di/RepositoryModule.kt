@@ -12,6 +12,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import kotlin.jvm.JvmStatic
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -19,6 +20,7 @@ object RepositoryModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideAuthRepository(
         api: ChoreQuestApi,
         sessionManager: SessionManager,
@@ -36,6 +38,7 @@ object RepositoryModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideChoreRepository(
         api: ChoreQuestApi,
         choreDao: ChoreDao,
@@ -50,6 +53,7 @@ object RepositoryModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideActivityLogRepository(
         api: ChoreQuestApi,
         activityLogDao: ActivityLogDao,

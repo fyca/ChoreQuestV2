@@ -33,6 +33,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
+import kotlin.jvm.JvmStatic
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -40,6 +41,7 @@ object AppModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideGson(): Gson {
         return GsonBuilder()
             .setLenient()
@@ -53,6 +55,7 @@ object AppModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideOkHttpClient(): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
@@ -104,6 +107,7 @@ object AppModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideRetrofit(
         okHttpClient: OkHttpClient,
         gson: Gson
@@ -131,12 +135,14 @@ object AppModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideChoreQuestApi(retrofit: Retrofit): ChoreQuestApi {
         return retrofit.create(ChoreQuestApi::class.java)
     }
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideChoreQuestDatabase(
         @ApplicationContext context: Context
     ): ChoreQuestDatabase {
@@ -153,25 +159,31 @@ object AppModule {
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideChoreDao(database: ChoreQuestDatabase) = database.choreDao()
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideRewardDao(database: ChoreQuestDatabase) = database.rewardDao()
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideUserDao(database: ChoreQuestDatabase) = database.userDao()
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideActivityLogDao(database: ChoreQuestDatabase) = database.activityLogDao()
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideTransactionDao(database: ChoreQuestDatabase) = database.transactionDao()
 
     @Provides
     @Singleton
+    @JvmStatic
     fun provideRewardRedemptionDao(database: ChoreQuestDatabase) = database.rewardRedemptionDao()
 }

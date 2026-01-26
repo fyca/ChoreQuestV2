@@ -44,6 +44,8 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_MATH_GAME_DIFFICULTY = "math_game_difficulty"
         private const val KEY_MATH_GAME_PROBLEM_TYPES = "math_game_problem_types"
         private const val KEY_MATH_GAME_GRADE_LEVEL = "math_game_grade_level"
+        private const val KEY_HANGMAN_HIGH_SCORE = "hangman_high_score"
+        private const val KEY_HANGMAN_DIFFICULTY = "hangman_difficulty"
     }
 
     // Tic-Tac-Toe High Score
@@ -347,5 +349,23 @@ class GamePreferencesManager @Inject constructor(
 
     fun saveMathGameGradeLevel(grade: com.lostsierra.chorequest.presentation.games.GradeLevel) {
         sharedPreferences.edit().putInt(KEY_MATH_GAME_GRADE_LEVEL, grade.value).apply()
+    }
+
+    // Hangman High Score
+    fun getHangmanHighScore(): Int {
+        return sharedPreferences.getInt(KEY_HANGMAN_HIGH_SCORE, 0)
+    }
+
+    fun saveHangmanHighScore(score: Int) {
+        sharedPreferences.edit().putInt(KEY_HANGMAN_HIGH_SCORE, score).apply()
+    }
+
+    // Hangman Difficulty
+    fun getHangmanDifficulty(): String {
+        return sharedPreferences.getString(KEY_HANGMAN_DIFFICULTY, "medium") ?: "medium"
+    }
+
+    fun saveHangmanDifficulty(difficulty: String) {
+        sharedPreferences.edit().putString(KEY_HANGMAN_DIFFICULTY, difficulty).apply()
     }
 }

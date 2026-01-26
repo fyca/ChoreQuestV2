@@ -34,6 +34,7 @@ import com.lostsierra.chorequest.presentation.games.JigsawPuzzleScreen
 import com.lostsierra.chorequest.presentation.games.SnakeGameScreen
 import com.lostsierra.chorequest.presentation.games.BreakoutGameScreen
 import com.lostsierra.chorequest.presentation.games.MathGameScreen
+import com.lostsierra.chorequest.presentation.games.HangmanScreen
 import com.lostsierra.chorequest.data.local.SessionManager
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -362,6 +363,9 @@ fun NavigationGraph(
                 },
                 onNavigateToMathGame = {
                     navController.navigate(NavigationRoutes.MathGame.route)
+                },
+                onNavigateToHangman = {
+                    navController.navigate(NavigationRoutes.Hangman.route)
                 }
             )
         }
@@ -424,6 +428,12 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.MathGame.route) {
             MathGameScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavigationRoutes.Hangman.route) {
+            HangmanScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

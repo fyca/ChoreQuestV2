@@ -571,18 +571,42 @@ class TicTacToeViewModel @Inject constructor(
     fun newGame() {
         val currentState = _uiState.value
         val boardSize = getBoardSize(currentState.difficulty)
+        
+        // If we're in REMOTE_PLAY mode and the remote game state was cleared (game ended),
+        // reset to AI mode. This happens when dismissWinDialog/dismissDrawDialog clears
+        // the remote game state, then newGame() is called.
+        // Check if we're in REMOTE_PLAY mode and remoteGameId is null (was cleared),
+        // or if dialogs are still showing (in case newGame is called directly)
+        val wasRemoteGameEnded = currentState.gameMode == GameMode.REMOTE_PLAY && 
+                                 currentState.remoteGameId == null &&
+                                 (currentState.opponentUserId != null || currentState.opponentName != null)
+        val shouldResetGameMode = wasRemoteGameEnded || 
+                                 (currentState.gameMode == GameMode.REMOTE_PLAY && 
+                                  (currentState.showWinDialog || currentState.showDrawDialog))
+        
         _uiState.value = currentState.copy(
             gameState = GameState(
                 board = arrayOfNulls(boardSize * boardSize),
                 boardSize = boardSize,
+                currentPlayer = Player.X, // Always start with X
                 playerXScore = currentState.gameState.playerXScore,
                 playerOScore = currentState.gameState.playerOScore
             ),
             showWinDialog = false,
             showDrawDialog = false,
+            showCelebration = false,
             isAITurn = false,
             isFlippingColumns = false,
-            columnsToFlip = emptySet()
+            columnsToFlip = emptySet(),
+            // Reset to AI mode if game ended in remote play mode
+            gameMode = if (shouldResetGameMode) GameMode.AI else currentState.gameMode,
+            remoteGameId = if (shouldResetGameMode) null else currentState.remoteGameId,
+            opponentUserId = if (shouldResetGameMode) null else currentState.opponentUserId,
+            opponentName = if (shouldResetGameMode) null else currentState.opponentName,
+            isWaitingForOpponent = false,
+            isMyTurn = true,
+            player1Name = if (shouldResetGameMode) "You" else currentState.player1Name,
+            player2Name = if (shouldResetGameMode) "AI" else currentState.player2Name
         )
     }
 
@@ -611,6 +635,7 @@ class TicTacToeViewModel @Inject constructor(
         
         // If game is over and in remote play mode, clear remote game state
         // so it doesn't reload when screen is reopened
+        // Also set a flag to indicate the game ended so newGame() can reset to AI mode
         val shouldClearRemoteGame = currentState.gameMode == GameMode.REMOTE_PLAY && 
                                     (currentState.showWinDialog || currentState.showDrawDialog)
         

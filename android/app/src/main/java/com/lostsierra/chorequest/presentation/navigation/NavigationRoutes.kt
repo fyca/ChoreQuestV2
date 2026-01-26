@@ -68,4 +68,5 @@ sealed class NavigationRoutes(val route: String) {
     object SnakeGame : NavigationRoutes("snake_game")
     object BreakoutGame : NavigationRoutes("breakout_game")
     object MathGame : NavigationRoutes("math_game")
+    object Hangman : NavigationRoutes("hangman")
 }

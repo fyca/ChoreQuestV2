@@ -38,7 +38,8 @@ fun GamesScreen(
     onNavigateToJigsawPuzzle: () -> Unit = {},
     onNavigateToSnakeGame: () -> Unit = {},
     onNavigateToBreakoutGame: () -> Unit = {},
-    onNavigateToMathGame: () -> Unit = {}
+    onNavigateToMathGame: () -> Unit = {},
+    onNavigateToHangman: () -> Unit = {}
 ) {
     val games = remember {
         listOf(
@@ -104,6 +105,14 @@ fun GamesScreen(
                 emoji = "🔢",
                 description = "Solve math problems!",
                 color = Color(0xFF673AB7),
+                isLocked = false
+            ),
+            Game(
+                id = "hangman",
+                title = "Hangman",
+                emoji = "🎯",
+                description = "Guess the word!",
+                color = Color(0xFF607D8B),
                 isLocked = false
             )
         )
@@ -181,6 +190,7 @@ fun GamesScreen(
                                 "snake" -> onNavigateToSnakeGame()
                                 "breakout" -> onNavigateToBreakoutGame()
                                 "math" -> onNavigateToMathGame()
+                                "hangman" -> onNavigateToHangman()
                                 // TODO: Add navigation for other games
                                 else -> {
                                     // Placeholder for other games

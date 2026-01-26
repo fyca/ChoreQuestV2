@@ -378,7 +378,7 @@ private fun WinDrawDialog(
     title: String,
     message: String,
     onDismiss: () -> Unit,
-    onPlayAgain: () -> Unit,
+    onPlayAgain: () -> Unit, // Keep parameter for compatibility but don't use it
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -413,26 +413,15 @@ private fun WinDrawDialog(
                 color = MaterialTheme.colorScheme.onSurface
             )
             
-            Row(
+            // Only show Close button
+            Button(
+                onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
             ) {
-                Button(
-                    onClick = onPlayAgain,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Text("Play Again")
-                }
-                
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Close")
-                }
+                Text("Close")
             }
         }
     }

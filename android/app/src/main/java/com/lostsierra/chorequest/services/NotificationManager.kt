@@ -452,15 +452,28 @@ class NotificationManager @Inject constructor(
                     val moveCount = currentGame.board.count { it != null }
                     val recentlyUpdated = (System.currentTimeMillis() - currentGame.lastUpdated) < 5 * 60 * 1000 // 5 minutes
                     
-                    // If it's a new game, user's turn, game has moves (opponent moved), and recently updated, notify
+                    // Only treat as "new game" if there's exactly 1 move (the first move by the game starter)
+                    // If there are 2+ moves, it means someone already made a move, so treat it as a move notification
                     if (isMyTurn && !currentGame.isGameOver && moveCount > 0 && recentlyUpdated) {
-                        Log.i(TAG, "Sending notification for new game $gameId: $opponentName created a game, it's your turn!")
-                        showNotification(
-                            title = "Your Turn! 🎮",
-                            message = "$opponentName started a Tic-Tac-Toe game. It's your turn!",
-                            type = Constants.NotificationTypes.GAME_MOVE,
-                            gameId = gameId
-                        )
+                        if (moveCount == 1) {
+                            // Exactly 1 move - this is a new game
+                            Log.i(TAG, "Sending notification for new game $gameId: $opponentName created a game, it's your turn!")
+                            showNotification(
+                                title = "Your Turn! 🎮",
+                                message = "$opponentName started a Tic-Tac-Toe game. It's your turn!",
+                                type = Constants.NotificationTypes.GAME_MOVE,
+                                gameId = gameId
+                            )
+                        } else {
+                            // 2+ moves - this is a move, not a new game
+                            Log.i(TAG, "Sending notification for game $gameId: $opponentName made a move, it's your turn! (moveCount=$moveCount)")
+                            showNotification(
+                                title = "Your Turn! 🎮",
+                                message = "$opponentName made a move in Tic-Tac-Toe. It's your turn!",
+                                type = Constants.NotificationTypes.GAME_MOVE,
+                                gameId = gameId
+                            )
+                        }
                         notificationsSent++
                     } else {
                         Log.d(TAG, "Game $gameId: New game, skipping notification (isMyTurn=$isMyTurn, moveCount=$moveCount, recentlyUpdated=$recentlyUpdated)")

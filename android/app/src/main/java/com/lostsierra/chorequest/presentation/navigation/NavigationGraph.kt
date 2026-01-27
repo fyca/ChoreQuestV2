@@ -35,6 +35,7 @@ import com.lostsierra.chorequest.presentation.games.SnakeGameScreen
 import com.lostsierra.chorequest.presentation.games.BreakoutGameScreen
 import com.lostsierra.chorequest.presentation.games.MathGameScreen
 import com.lostsierra.chorequest.presentation.games.HangmanScreen
+import com.lostsierra.chorequest.presentation.games.WordScrambleScreen
 import com.lostsierra.chorequest.data.local.SessionManager
 import androidx.hilt.navigation.compose.hiltViewModel
 
@@ -366,6 +367,9 @@ fun NavigationGraph(
                 },
                 onNavigateToHangman = {
                     navController.navigate(NavigationRoutes.Hangman.route)
+                },
+                onNavigateToWordScramble = {
+                    navController.navigate(NavigationRoutes.WordScramble.route)
                 }
             )
         }
@@ -434,6 +438,12 @@ fun NavigationGraph(
 
         composable(NavigationRoutes.Hangman.route) {
             HangmanScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavigationRoutes.WordScramble.route) {
+            WordScrambleScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

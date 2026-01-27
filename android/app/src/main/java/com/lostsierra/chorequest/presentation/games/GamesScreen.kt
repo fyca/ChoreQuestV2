@@ -39,7 +39,8 @@ fun GamesScreen(
     onNavigateToSnakeGame: () -> Unit = {},
     onNavigateToBreakoutGame: () -> Unit = {},
     onNavigateToMathGame: () -> Unit = {},
-    onNavigateToHangman: () -> Unit = {}
+    onNavigateToHangman: () -> Unit = {},
+    onNavigateToWordScramble: () -> Unit = {}
 ) {
     val games = remember {
         listOf(
@@ -113,6 +114,14 @@ fun GamesScreen(
                 emoji = "🎯",
                 description = "Guess the word!",
                 color = Color(0xFF607D8B),
+                isLocked = false
+            ),
+            Game(
+                id = "word-scramble",
+                title = "Word Scramble",
+                emoji = "🔤",
+                description = "Unscramble words!",
+                color = Color(0xFF795548),
                 isLocked = false
             )
         )
@@ -191,6 +200,7 @@ fun GamesScreen(
                                 "breakout" -> onNavigateToBreakoutGame()
                                 "math" -> onNavigateToMathGame()
                                 "hangman" -> onNavigateToHangman()
+                                "word-scramble" -> onNavigateToWordScramble()
                                 // TODO: Add navigation for other games
                                 else -> {
                                     // Placeholder for other games

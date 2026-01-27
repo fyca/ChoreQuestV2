@@ -46,6 +46,8 @@ class GamePreferencesManager @Inject constructor(
         private const val KEY_MATH_GAME_GRADE_LEVEL = "math_game_grade_level"
         private const val KEY_HANGMAN_HIGH_SCORE = "hangman_high_score"
         private const val KEY_HANGMAN_DIFFICULTY = "hangman_difficulty"
+        private const val KEY_WORD_SCRAMBLE_HIGH_SCORE = "word_scramble_high_score"
+        private const val KEY_WORD_SCRAMBLE_GRADE_LEVEL = "word_scramble_grade_level"
     }
 
     // Tic-Tac-Toe High Score
@@ -344,7 +346,12 @@ class GamePreferencesManager @Inject constructor(
     // Math Game Grade Level
     fun getMathGameGradeLevel(): com.lostsierra.chorequest.presentation.games.GradeLevel {
         val gradeValue = sharedPreferences.getInt(KEY_MATH_GAME_GRADE_LEVEL, 3) // Default to Grade 3
-        return com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
+        // Handle -1 for BrainRot
+        return if (gradeValue == -1) {
+            com.lostsierra.chorequest.presentation.games.GradeLevel.BRAINROT
+        } else {
+            com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
+        }
     }
 
     fun saveMathGameGradeLevel(grade: com.lostsierra.chorequest.presentation.games.GradeLevel) {
@@ -367,5 +374,29 @@ class GamePreferencesManager @Inject constructor(
 
     fun saveHangmanDifficulty(difficulty: String) {
         sharedPreferences.edit().putString(KEY_HANGMAN_DIFFICULTY, difficulty).apply()
+    }
+
+    // Word Scramble High Score
+    fun getWordScrambleHighScore(): Int {
+        return sharedPreferences.getInt(KEY_WORD_SCRAMBLE_HIGH_SCORE, 0)
+    }
+
+    fun saveWordScrambleHighScore(score: Int) {
+        sharedPreferences.edit().putInt(KEY_WORD_SCRAMBLE_HIGH_SCORE, score).apply()
+    }
+
+    // Word Scramble Grade Level
+    fun getWordScrambleGradeLevel(): com.lostsierra.chorequest.presentation.games.GradeLevel {
+        val gradeValue = sharedPreferences.getInt(KEY_WORD_SCRAMBLE_GRADE_LEVEL, 3) // Default to Grade 3
+        // Handle -1 for BrainRot
+        return if (gradeValue == -1) {
+            com.lostsierra.chorequest.presentation.games.GradeLevel.BRAINROT
+        } else {
+            com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
+        }
+    }
+
+    fun saveWordScrambleGradeLevel(grade: com.lostsierra.chorequest.presentation.games.GradeLevel) {
+        sharedPreferences.edit().putInt(KEY_WORD_SCRAMBLE_GRADE_LEVEL, grade.value).apply()
     }
 }

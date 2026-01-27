@@ -46,7 +46,8 @@ enum class GradeLevel(val displayName: String, val value: Int) {
     GRADE_9("Grade 9", 9),
     GRADE_10("Grade 10", 10),
     GRADE_11("Grade 11", 11),
-    GRADE_12("Grade 12", 12);
+    GRADE_12("Grade 12", 12),
+    BRAINROT("BrainRot", -1);
     
     companion object {
         fun fromValue(value: Int): GradeLevel {
@@ -186,6 +187,7 @@ class MathGameViewModel @Inject constructor(
             GradeLevel.GRADE_10 -> generateGrade10Problem(operation, random)
             GradeLevel.GRADE_11 -> generateGrade11Problem(operation, random)
             GradeLevel.GRADE_12 -> generateGrade12Problem(operation, random)
+            GradeLevel.BRAINROT -> generateGrade3Problem(operation, random) // Default to Grade 3 for BrainRot (not used in Math Game)
         }
     }
 

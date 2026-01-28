@@ -346,11 +346,11 @@ class GamePreferencesManager @Inject constructor(
     // Math Game Grade Level
     fun getMathGameGradeLevel(): com.lostsierra.chorequest.presentation.games.GradeLevel {
         val gradeValue = sharedPreferences.getInt(KEY_MATH_GAME_GRADE_LEVEL, 3) // Default to Grade 3
-        // Handle -1 for BrainRot
-        return if (gradeValue == -1) {
-            com.lostsierra.chorequest.presentation.games.GradeLevel.BRAINROT
-        } else {
-            com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
+        // Handle -1 for BrainRot and -2 for Yeeps
+        return when (gradeValue) {
+            -1 -> com.lostsierra.chorequest.presentation.games.GradeLevel.BRAINROT
+            -2 -> com.lostsierra.chorequest.presentation.games.GradeLevel.YEEPS
+            else -> com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
         }
     }
 
@@ -388,11 +388,11 @@ class GamePreferencesManager @Inject constructor(
     // Word Scramble Grade Level
     fun getWordScrambleGradeLevel(): com.lostsierra.chorequest.presentation.games.GradeLevel {
         val gradeValue = sharedPreferences.getInt(KEY_WORD_SCRAMBLE_GRADE_LEVEL, 3) // Default to Grade 3
-        // Handle -1 for BrainRot
-        return if (gradeValue == -1) {
-            com.lostsierra.chorequest.presentation.games.GradeLevel.BRAINROT
-        } else {
-            com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
+        // Handle -1 for BrainRot and -2 for Yeeps
+        return when (gradeValue) {
+            -1 -> com.lostsierra.chorequest.presentation.games.GradeLevel.BRAINROT
+            -2 -> com.lostsierra.chorequest.presentation.games.GradeLevel.YEEPS
+            else -> com.lostsierra.chorequest.presentation.games.GradeLevel.fromValue(gradeValue)
         }
     }
 

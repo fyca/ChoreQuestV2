@@ -418,11 +418,23 @@ private fun LetterTilesCard(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp)
+                .padding(
+                    // Adaptive padding based on word length
+                    when {
+                        letterTiles.size >= 12 -> 12.dp
+                        letterTiles.size >= 10 -> 16.dp
+                        else -> 24.dp
+                    }
+                )
         ) {
             // Calculate dynamic tile size based on available width and word length
-            val availableWidth = maxWidth - 0.dp // Already accounting for padding
-            val spacingBetweenTiles = 8.dp
+            val availableWidth = maxWidth
+            // Adaptive spacing based on word length
+            val spacingBetweenTiles = when {
+                letterTiles.size >= 10 -> 4.dp
+                letterTiles.size >= 8 -> 6.dp
+                else -> 8.dp
+            }
             val totalSpacing = if (letterTiles.size > 1) {
                 spacingBetweenTiles * (letterTiles.size - 1)
             } else {
@@ -433,8 +445,8 @@ private fun LetterTilesCard(
             } else {
                 56.dp
             }
-            // Clamp between minimum (30.dp) and maximum (56.dp) sizes
-            val tileSize = calculatedSize.coerceIn(30.dp, 56.dp)
+            // Lower minimum from 30.dp to 20.dp
+            val tileSize = calculatedSize.coerceIn(20.dp, 56.dp)
             
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -516,7 +528,9 @@ private fun LetterTile(
     val textStyle = when {
         tileSize >= 50.dp -> MaterialTheme.typography.headlineMedium
         tileSize >= 45.dp -> MaterialTheme.typography.titleLarge
-        else -> MaterialTheme.typography.titleMedium
+        tileSize >= 35.dp -> MaterialTheme.typography.titleMedium
+        tileSize >= 25.dp -> MaterialTheme.typography.titleSmall
+        else -> MaterialTheme.typography.bodyLarge.copy(fontSize = (tileSize.value * 0.4).sp)
     }
     
     Card(

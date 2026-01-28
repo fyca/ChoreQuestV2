@@ -263,6 +263,92 @@ class WordScrambleViewModel @Inject constructor(
             WordWithTheme("TOUCHGRASS", "Internet Slang"), WordWithTheme("MAINCHARACTER", "Internet Slang"), WordWithTheme("SIDECHARACTER", "Internet Slang"),
             WordWithTheme("YEET", "Internet Slang"), WordWithTheme("POGGERS", "Internet Slang"), WordWithTheme("NO", "Internet Slang"),
             WordWithTheme("YES", "Internet Slang")
+        ),
+        GradeLevel.YEEPS to listOf(
+            // Core Game Terms
+            WordWithTheme("YEEP", "Yeeps Game"), WordWithTheme("STUFFING", "Yeeps Game"),
+            WordWithTheme("SEEKER", "Yeeps Game"), WordWithTheme("HIDER", "Yeeps Game"),
+            WordWithTheme("BUTTCOIN", "Yeeps Game"), WordWithTheme("TECHWEB", "Yeeps Game"),
+            
+            // Building Items
+            WordWithTheme("PILLOW", "Yeeps Game"), WordWithTheme("BLOCK", "Yeeps Game"),
+            WordWithTheme("STRUCTURE", "Yeeps Game"), WordWithTheme("BUILD", "Yeeps Game"),
+            
+            // Movement Gadgets
+            WordWithTheme("GRAPPLER", "Yeeps Game"), WordWithTheme("GRAPPLING", "Yeeps Game"),
+            WordWithTheme("HOOK", "Yeeps Game"), WordWithTheme("PROPELLER", "Yeeps Game"),
+            WordWithTheme("FIREWORK", "Yeeps Game"), WordWithTheme("FLIPPER", "Yeeps Game"),
+            WordWithTheme("BROOM", "Yeeps Game"), WordWithTheme("WITCH", "Yeeps Game"),
+            WordWithTheme("ZIPLINE", "Yeeps Game"), WordWithTheme("ANCHOR", "Yeeps Game"),
+            WordWithTheme("SLED", "Yeeps Game"), WordWithTheme("SURFBOARD", "Yeeps Game"),
+            WordWithTheme("UMBRELLA", "Yeeps Game"), WordWithTheme("PORTAL", "Yeeps Game"),
+            WordWithTheme("BALL", "Yeeps Game"),
+            
+            // Combat & Annoying Items
+            WordWithTheme("GRENADE", "Yeeps Game"), WordWithTheme("SNOWBALL", "Yeeps Game"),
+            WordWithTheme("BAT", "Yeeps Game"), WordWithTheme("BOMB", "Yeeps Game"),
+            WordWithTheme("EXPLOSIVE", "Yeeps Game"), WordWithTheme("RADIATION", "Yeeps Game"),
+            WordWithTheme("PIN", "Yeeps Game"), WordWithTheme("THROW", "Yeeps Game"),
+            
+            // Utility & Creative Items
+            WordWithTheme("DECOY", "Yeeps Game"), WordWithTheme("BODY", "Yeeps Game"),
+            WordWithTheme("GADGET", "Yeeps Game"), WordWithTheme("ITEM", "Yeeps Game"),
+            WordWithTheme("BUTTJO", "Yeeps Game"), WordWithTheme("PAINTBRUSH", "Yeeps Game"),
+            WordWithTheme("WIRING", "Yeeps Game"), WordWithTheme("WIRE", "Yeeps Game"),
+            WordWithTheme("SHORT", "Yeeps Game"), WordWithTheme("LONG", "Yeeps Game"),
+            WordWithTheme("BUTTON", "Yeeps Game"), WordWithTheme("SWITCH", "Yeeps Game"),
+            
+            // Potion Base Ingredients
+            WordWithTheme("BREWSHROOM", "Yeeps Game"), WordWithTheme("MAGIC", "Yeeps Game"),
+            WordWithTheme("TALL", "Yeeps Game"),
+            
+            // Potion Effect Ingredients
+            WordWithTheme("GOODIE", "Yeeps Game"), WordWithTheme("FLOWER", "Yeeps Game"),
+            WordWithTheme("CORRUPTED", "Yeeps Game"), WordWithTheme("SPEED", "Yeeps Game"),
+            WordWithTheme("BERRIES", "Yeeps Game"), WordWithTheme("BUFF", "Yeeps Game"),
+            WordWithTheme("TENTACLE", "Yeeps Game"), WordWithTheme("HEALTHY", "Yeeps Game"),
+            WordWithTheme("LEAF", "Yeeps Game"), WordWithTheme("FLOATY", "Yeeps Game"),
+            WordWithTheme("FEATHER", "Yeeps Game"), WordWithTheme("BIGGIE", "Yeeps Game"),
+            WordWithTheme("BONE", "Yeeps Game"), WordWithTheme("SPOOKY", "Yeeps Game"),
+            WordWithTheme("EYEBALL", "Yeeps Game"), WordWithTheme("CHAMELEON", "Yeeps Game"),
+            WordWithTheme("TAIL", "Yeeps Game"),
+            
+            // Potion Types
+            WordWithTheme("GIANT", "Yeeps Game"), WordWithTheme("TINY", "Yeeps Game"),
+            WordWithTheme("HEALING", "Yeeps Game"), WordWithTheme("POISON", "Yeeps Game"),
+            WordWithTheme("INVISIBILITY", "Yeeps Game"), WordWithTheme("VISIBILITY", "Yeeps Game"),
+            WordWithTheme("NIGHT", "Yeeps Game"), WordWithTheme("VISION", "Yeeps Game"),
+            WordWithTheme("BLINDNESS", "Yeeps Game"), WordWithTheme("LEVITATION", "Yeeps Game"),
+            WordWithTheme("SLOW", "Yeeps Game"), WordWithTheme("FALLING", "Yeeps Game"),
+            WordWithTheme("SLOWNESS", "Yeeps Game"), WordWithTheme("STRENGTH", "Yeeps Game"),
+            WordWithTheme("WEAKNESS", "Yeeps Game"), WordWithTheme("HASTE", "Yeeps Game"),
+            WordWithTheme("HOLLOW", "Yeeps Game"), WordWithTheme("LOVE", "Yeeps Game"),
+            WordWithTheme("NEUTRALIZER", "Yeeps Game"), WordWithTheme("FAILED", "Yeeps Game"),
+            WordWithTheme("POTION", "Yeeps Game"),
+            
+            // Brewing Terms
+            WordWithTheme("BREWING", "Yeeps Game"), WordWithTheme("CAULDRON", "Yeeps Game"),
+            WordWithTheme("BOTTLE", "Yeeps Game"), WordWithTheme("DRINK", "Yeeps Game"),
+            WordWithTheme("INGREDIENT", "Yeeps Game"), WordWithTheme("RECIPE", "Yeeps Game"),
+            WordWithTheme("COMBINE", "Yeeps Game"), WordWithTheme("EFFECT", "Yeeps Game"),
+            WordWithTheme("DURATION", "Yeeps Game"),
+            
+            // Game Modes
+            WordWithTheme("TAG", "Yeeps Game"), WordWithTheme("HUNT", "Yeeps Game"),
+            WordWithTheme("PROP", "Yeeps Game"), WordWithTheme("HANGOUT", "Yeeps Game"),
+            WordWithTheme("MONSTER", "Yeeps Game"), WordWithTheme("GOBLIN", "Yeeps Game"),
+            WordWithTheme("SURVIVAL", "Yeeps Game"), WordWithTheme("BATTLE", "Yeeps Game"),
+            WordWithTheme("HIDE", "Yeeps Game"), WordWithTheme("SEEK", "Yeeps Game"),
+            
+            // Game World & Customization
+            WordWithTheme("WORLD", "Yeeps Game"), WordWithTheme("MAP", "Yeeps Game"),
+            WordWithTheme("SHOP", "Yeeps Game"), WordWithTheme("COSMETIC", "Yeeps Game"),
+            WordWithTheme("CRAFT", "Yeeps Game"), WordWithTheme("RESEARCH", "Yeeps Game"),
+            WordWithTheme("TECH", "Yeeps Game"), WordWithTheme("WEB", "Yeeps Game"),
+            WordWithTheme("CREATIVE", "Yeeps Game"), WordWithTheme("PRIVATE", "Yeeps Game"),
+            WordWithTheme("COMMUNITY", "Yeeps Game"), WordWithTheme("CUSTOM", "Yeeps Game"),
+            WordWithTheme("SIGN", "Yeeps Game"), WordWithTheme("NOPIN", "Yeeps Game"),
+            WordWithTheme("DECORATION", "Yeeps Game"), WordWithTheme("PLUSH", "Yeeps Game")
         )
     )
 
